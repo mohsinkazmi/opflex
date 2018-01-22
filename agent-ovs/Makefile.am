@@ -64,6 +64,7 @@ libopflex_agent_la_include_HEADERS = \
 	lib/include/opflexagent/Renderer.h \
 	lib/include/opflexagent/TunnelEpManager.h \
 	lib/include/opflexagent/Agent.h \
+	lib/include/opflexagent/IdGenerator.h \
 	lib/include/opflexagent/KeyedRateLimiter.h \
 	lib/include/opflexagent/MulticastListener.h \
 	lib/include/opflexagent/TaskQueue.h \
@@ -92,7 +93,6 @@ noinst_HEADERS = \
 	ovs/include/PolicyStatsManager.h \
 	ovs/include/ContractStatsManager.h \
 	ovs/include/SecGrpStatsManager.h \
-	ovs/include/IdGenerator.h \
 	ovs/include/CtZoneManager.h \
 	ovs/include/RangeMask.h \
 	ovs/include/Packets.h \

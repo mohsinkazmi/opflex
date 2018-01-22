@@ -8,7 +8,7 @@
  * and is available at http://www.eclipse.org/legal/epl-v10.html
  */
 
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 
 #include <boost/test/unit_test.hpp>
 

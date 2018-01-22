@@ -13,7 +13,7 @@
 #include <boost/asio.hpp>
 
 #include "SwitchConnection.h"
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 
 #include <string>
 #include <unordered_map>

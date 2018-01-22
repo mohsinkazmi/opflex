@@ -10,7 +10,7 @@
 #include <fstream>
 #include <algorithm>
 
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include <opflexagent/logging.h>
 
 namespace opflexagent {

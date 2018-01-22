@@ -12,7 +12,7 @@
 
 #include <opflexagent/Agent.h>
 #include "SwitchManager.h"
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include "ActionBuilder.h"
 #include "AdvertManager.h"
 #include <opflexagent/RDConfig.h>

@@ -11,7 +11,7 @@
 
 #include <opflexagent/logging.h>
 #include "IntFlowManager.h"
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include <opflexagent/Agent.h>
 #include "TableState.h"
 #include "ContractStatsManager.h"

@@ -8,7 +8,7 @@
  */
 
 #include "CtZoneManager.h"
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include <opflexagent/logging.h>
 
 #ifdef HAVE_LIBNFCT

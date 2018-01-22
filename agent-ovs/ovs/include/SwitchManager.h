@@ -17,7 +17,7 @@
 #include "FlowReader.h"
 #include "PortMapper.h"
 #include <opflexagent/Agent.h>
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include "SwitchStateHandler.h"
 
 #include <boost/noncopyable.hpp>

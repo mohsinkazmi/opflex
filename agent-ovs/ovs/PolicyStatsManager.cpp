@@ -10,7 +10,7 @@
  */
 
 #include <opflexagent/logging.h>
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include <opflexagent/Agent.h>
 #include "IntFlowManager.h"
 #include "TableState.h"

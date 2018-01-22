@@ -12,7 +12,7 @@
 #include <opflexagent/logging.h>
 #include "stdlib.h"
 
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include "CtZoneManager.h"
 
 BOOST_AUTO_TEST_SUITE(ctzone_test)

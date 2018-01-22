@@ -12,7 +12,7 @@
 #include <opflexagent/logging.h>
 #include "AccessFlowManager.h"
 #include "IntFlowManager.h"
-#include "IdGenerator.h"
+#include <opflexagent/IdGenerator.h>
 #include <opflexagent/Agent.h>
 #include "TableState.h"
 #include "SecGrpStatsManager.h"
