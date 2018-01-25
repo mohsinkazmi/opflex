@@ -148,9 +148,23 @@ void VppManager::start() {
                        bind(&VppManager::handleUplinkConfigure, this));
 }
 
+void VppManager::handleCloseConnection() {
+    if (!hw_connected)
+        return;
+
+    m_cmds.clear();
+
+    VOM::HW::disconnect();
+
+    LOG(DEBUG) << "Close VPP connection";
+
+}
+
 void VppManager::handleInitConnection() {
     if (stopping)
         return;
+
+    LOG(DEBUG) << "Open VPP connection";
 
     while (VOM::HW::connect() != true)
         ;
@@ -274,9 +288,8 @@ void VppManager::stop() {
         m_poll_timer->cancel();
     }
 
-    m_cmds.clear();
-
-    VOM::HW::disconnect();
+    taskQueue.dispatch("close-connection",
+                       bind(&VppManager::handleCloseConnection, this));
 
     LOG(DEBUG) << "stop VppManager";
 }

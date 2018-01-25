@@ -89,6 +89,8 @@ public:
      */
     bool connect() { return true; }
 
+    void disconnect() {}
+
 private:
     void handle_cmd(cmd* c) {
         if (typeid(*c) == typeid(interface_cmds::af_packet_create_cmd)) {
@@ -388,7 +390,7 @@ BOOST_FIXTURE_TEST_CASE(start, VppManagerFixture) {
      *  - DHCP configuration on the sub-interface
      *  - LLDP config on the physical interface
      */
-    interface v_phy("opflex-itf", interface::type_t::AFPACKET,
+    interface v_phy("opflex-itf", interface::type_t::ETHERNET,
                     interface::admin_state_t::UP);
     sub_interface v_sub(v_phy, interface::admin_state_t::UP, 4093);
 

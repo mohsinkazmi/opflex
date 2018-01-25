@@ -100,7 +100,7 @@ void Uplink::configure(const std::string& fqdn) {
     /*
      * Consruct the uplink physical, so we now 'own' it
      */
-    interface itf(m_iface, interface::type_t::AFPACKET,
+    interface itf(m_iface, interface::type_t::ETHERNET,
                   interface::admin_state_t::UP);
     OM::write(UPLINK_KEY, itf);
 

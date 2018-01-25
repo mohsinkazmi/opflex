@@ -257,6 +257,11 @@ private:
     void handleInitConnection();
 
     /**
+     * Handle a disconnect from VPP request
+     */
+    void handleCloseConnection();
+
+    /**
      * Handle the connect request to VPP
      */
     void handleUplinkConfigure();
