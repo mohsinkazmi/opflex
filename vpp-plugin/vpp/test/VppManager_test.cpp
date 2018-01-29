@@ -13,6 +13,7 @@
 
 #include <boost/optional.hpp>
 #include <boost/test/unit_test.hpp>
+#include <boost/asio/ip/host_name.hpp>
 
 #include <modelgbp/gbp/SecGroup.hpp>
 
@@ -397,8 +398,9 @@ BOOST_FIXTURE_TEST_CASE(start, VppManagerFixture) {
     WAIT_FOR_MATCH(v_phy);
     WAIT_FOR_MATCH(v_sub);
 
-    WAIT_FOR_MATCH(dhcp_config(v_sub, "localhost"));
-    WAIT_FOR_MATCH(lldp_global("localhost", 5, 2));
+    std::string fqdn = boost::asio::ip::host_name();
+    WAIT_FOR_MATCH(dhcp_config(v_sub, fqdn));
+    WAIT_FOR_MATCH(lldp_global(fqdn, 5, 2));
     WAIT_FOR_MATCH(lldp_binding(v_phy, "uplink-interface"));
 }
 
