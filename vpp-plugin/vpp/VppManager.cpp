@@ -428,10 +428,11 @@ bool VppManager::getGroupForwardingInfo(const URI& epgURI, uint32_t& vnid,
         return false;
     }
 
-    bdId = 0;
+    bdId = rdId = 0;
     if (epgRd) {
         rdURI = epgRd.get()->getURI();
-        rdId = getId(RoutingDomain::CLASS_ID, rdURI.get());
+        if (rdURI)
+            rdId = getId(RoutingDomain::CLASS_ID, rdURI.get());
     }
     if (epgBd) {
         bdURI = epgBd.get()->getURI();
@@ -824,7 +825,8 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
     /*
      * import the EP's addresses into all the other VPP route-domains
      */
-    importEPAddress(uuid, epgURI.get(), ipAddresses, itf, rdURI.get());
+    if (rdURI)
+        importEPAddress(uuid, epgURI.get(), ipAddresses, itf, rdURI.get());
 
     /*
      * That's all folks ... destructor of mark_n_sweep calls the
