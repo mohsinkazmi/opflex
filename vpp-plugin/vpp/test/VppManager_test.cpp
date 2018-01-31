@@ -49,7 +49,7 @@ BOOST_AUTO_TEST_SUITE(VppManager_test)
 
 class MockCmdQ : public HW::cmd_q {
 public:
-    MockCmdQ() : handle(0) {}
+    MockCmdQ() : handle(0), m_mutex() {}
     ~MockCmdQ() {}
 
     void enqueue(cmd* c) {
@@ -74,6 +74,19 @@ public:
     void dequeue(std::shared_ptr<cmd> cmd) {}
 
     rc_t write() {
+	/*
+	 * the unit tests are executed in thread x and the VppManager
+	 * task queue executes in thread y. both call write() when
+	 * objects are destroyed, even though the objects in the
+	 * test case do not issue commands. Which thread runs write
+	 * is not important.
+	 * N.B. this is an artefact of the way the unit-tests are
+	 * structered and run, this does not afflict the real system
+	 * where *all* objects are created and destroyed with the
+	 * VppManager taskQueue context.
+	 */
+	std::lock_guard<std::mutex> lg(m_mutex);
+
         std::shared_ptr<cmd> c;
 
         while (!m_cmds.empty()) {
@@ -104,6 +117,8 @@ private:
         c->succeeded();
     }
     uint32_t handle;
+
+    std::mutex m_mutex;
 
     std::queue<std::shared_ptr<cmd>> m_cmds;
 };
