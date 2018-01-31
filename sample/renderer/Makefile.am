@@ -33,6 +33,7 @@ libopflex_agent_renderer_sample_la_LDFLAGS = \
 # Install the default plugin configuration file
 pluginconfdir=$(sysconfdir)/opflex-agent-ovs/plugins.conf.d
 pluginconf_DATA = plugin-renderer-sample.conf
+EXTRA_DIST=$(pluginconf_DATA)
 
 # Create a unit test driver that links to the plugin convenience
 # library
@@ -48,3 +49,15 @@ sample_test_LDADD = \
 sample_test_SOURCES = \
 	sample_test.cpp \
 	SampleRenderer_test.cpp
+
+CWD=`pwd`
+RPMFLAGS=--define "_topdir ${CWD}/rpm"
+ARCH=x86_64
+SOURCE_FILE=${PACKAGE}-${VERSION}.tar.gz
+RPMDIRS=rpm/BUILD rpm/SOURCES rpm/RPMS rpm/SRPMS
+srpm: dist rpm/opflex-agent-renderer-sample.spec
+	mkdir -p ${RPMDIRS}
+	cp ${SOURCE_FILE} rpm/SOURCES/
+	rpmbuild ${RPMFLAGS} -bs rpm/opflex-agent-renderer-sample.spec
+	cp rpm/SRPMS/*.rpm .
+	rm -rf ${RPMDIRS}

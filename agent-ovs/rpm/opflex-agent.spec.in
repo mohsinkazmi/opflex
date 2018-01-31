@@ -94,6 +94,7 @@ Group: Development/Libraries
 Requires: %{name} = %{epoch}:%{version}-%{release}
 Requires: pkgconfig
 Requires: libopflex-devel >= %{version}
+Requires: libnetfilter_conntrack-devel >= 1.0
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
 Provides: libopflex_agent-static = %{version}-%{release}

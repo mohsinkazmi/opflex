@@ -54,6 +54,7 @@ AX_CXX_COMPILE_STDCXX([11], [], [mandatory])
 AC_STDC_HEADERS
 
 PKG_CHECK_MODULES([libopflex_agent], [libopflex_agent >= 1.7.0])
+AC_SUBST(libopflex_agent_VERSION, [$($PKG_CONFIG --modversion libopflex_agent)])
 
 AX_BOOST_BASE([1.53.0], [], AC_MSG_ERROR([Boost is required]))
 AX_BOOST_UNIT_TEST_FRAMEWORK
@@ -66,6 +67,7 @@ fi
 
 AC_CONFIG_FILES([\
         Makefile \
+	rpm/opflex-agent-renderer-sample.spec \
 	])
 AC_OUTPUT
 
