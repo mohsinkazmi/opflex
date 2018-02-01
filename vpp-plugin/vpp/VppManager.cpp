@@ -1312,6 +1312,52 @@ void VppManager::handleContractUpdate(const opflex::modb::URI& contractURI) {
         idGen.erase(getIdNamespace(Contract::CLASS_ID), contractURI.toString());
         return;
     }
+
+    PolicyManager::uri_set_t provURIs;
+    PolicyManager::uri_set_t consURIs;
+    PolicyManager::uri_set_t intraURIs;
+    polMgr.getContractProviders(contractURI, provURIs);
+    polMgr.getContractConsumers(contractURI, consURIs);
+    polMgr.getContractIntra(contractURI, intraURIs);
+
+    PolicyManager::rule_list_t rules;
+    polMgr.getContractRules(contractURI, rules);
+
+    for (const URI& p : provURIs) {
+        for (const URI& c : consURIs) {
+            if (p == c)
+                continue;
+
+            bool allowBidirectional =
+                provURIs.find(c) == provURIs.end() ||
+                consURIs.find(p) == consURIs.end();
+
+            for (const shared_ptr<PolicyRule>& pc : rules) {
+                uint8_t dir = pc->getDirection();
+                const shared_ptr<L24Classifier>& cls = pc->getL24Classifier();
+                uint32_t priority = pc->getPriority();
+                uint16_t etherType =
+                    cls->getEtherT(EtherTypeEnumT::CONST_UNSPECIFIED);
+                    VOM::ACL::action_t act = VOM::ACL::action_t::from_bool(
+                        pc->getAllow(),
+                        cls->getConnectionTracking(ConnTrackEnumT::CONST_NORMAL));
+
+                if (dir == DirectionEnumT::CONST_BIDIRECTIONAL &&
+                    !allowBidirectional) {
+                    dir = DirectionEnumT::CONST_IN;
+                }
+                if (dir == DirectionEnumT::CONST_IN ||
+                    dir == DirectionEnumT::CONST_BIDIRECTIONAL) {
+                    // code here
+                }
+                if (dir == DirectionEnumT::CONST_OUT ||
+                    dir == DirectionEnumT::CONST_BIDIRECTIONAL) {
+		    // code here
+                }
+            }
+        }
+    }
+
 }
 
 void VppManager::initPlatformConfig() {
