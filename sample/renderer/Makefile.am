@@ -55,7 +55,15 @@ RPMFLAGS=--define "_topdir ${CWD}/rpm"
 ARCH=x86_64
 SOURCE_FILE=${PACKAGE}-${VERSION}.tar.gz
 RPMDIRS=rpm/BUILD rpm/SOURCES rpm/RPMS rpm/SRPMS
-srpm: dist rpm/opflex-agent-renderer-sample.spec
+rpm: dist rpm/opflex-agent-renderer-sample.spec
+	mkdir -p ${RPMDIRS}
+	cp ${SOURCE_FILE} rpm/SOURCES/
+	rpmbuild ${RPMFLAGS} -ba rpm/opflex-agent-renderer-sample.spec
+	cp rpm/RPMS/${ARCH}/*.rpm .
+	cp rpm/SRPMS/*.rpm .
+	rm -rf ${RPMDIRS}
+
+srpm: dist rpm/renderer-sample.spec
 	mkdir -p ${RPMDIRS}
 	cp ${SOURCE_FILE} rpm/SOURCES/
 	rpmbuild ${RPMFLAGS} -bs rpm/opflex-agent-renderer-sample.spec

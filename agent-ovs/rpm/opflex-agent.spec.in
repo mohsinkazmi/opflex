@@ -35,8 +35,8 @@ BuildRequires: libopflex-devel
 BuildRequires: libmodelgbp-devel
 BuildRequires: boost-devel
 BuildRequires: boost-test
-BuildRequires: noiro-openvswitch-devel >= 2.6.0
-BuildRequires: noiro-openvswitch-lib >= 2.6.0
+#BuildRequires: noiro-openvswitch-devel >= 2.6.0
+#BuildRequires: noiro-openvswitch-lib >= 2.6.0
 BuildRequires: doxygen
 BuildRequires: systemd-units
 BuildRequires: rapidjson-devel >= 1.0
@@ -62,18 +62,18 @@ Requires: %{name}-renderer-openvswitch >= %{epoch}:%{version}-%{release}
 This package depends on opflex-agent and opflex-agent-renderer-openvswitch to
 allow smoother transition from the older packages
 
-%package renderer-openvswitch
-Summary: Open vSwitch renderer module for OpFlex Agent
-Group: Development/Libraries
-Requires: %{name} = %{epoch}:%{version}-%{release}
-Requires: noiro-openvswitch-lib >= 2.6
-Requires: openvswitch >= 2.6
-Requires(post): /sbin/ldconfig
-Requires(postun): /sbin/ldconfig
+#%package renderer-openvswitch
+#Summary: Open vSwitch renderer module for OpFlex Agent
+#Group: Development/Libraries
+#Requires: %{name} = %{epoch}:%{version}-%{release}
+#Requires: noiro-openvswitch-lib >= 2.6
+#Requires: openvswitch >= 2.6
+#Requires(post): /sbin/ldconfig
+#Requires(postun): /sbin/ldconfig
 
-%description renderer-openvswitch
-The Open vSwitch renderer provides a loadable module that adds support
-for rendering group-based policy model to Open vSwitch.
+#%description renderer-openvswitch
+#The Open vSwitch renderer provides a loadable module that adds support
+#for rendering group-based policy model to Open vSwitch.
 
 %package lib
 Summary: Library for building OpFlex agent loadable plugins
@@ -114,9 +114,9 @@ make %{?_smp_mflags}
 install -p -D -m 0644 \
     rpm/opflex-agent.service \
     $RPM_BUILD_ROOT%{_unitdir}/opflex-agent.service
-install -p -D -m 0644 \
-    rpm/opflex-agent-openvswitch.conf \
-    $RPM_BUILD_ROOT%{_unitdir}/opflex-agent.service.d/10-opflex-agent-openvswitch.conf
+#install -p -D -m 0644 \
+#    rpm/opflex-agent-openvswitch.conf \
+#    $RPM_BUILD_ROOT%{_unitdir}/opflex-agent.service.d/10-opflex-agent-openvswitch.conf
 install -p -D -m 0644 \
     rpm/mcast-daemon.service \
     $RPM_BUILD_ROOT%{_unitdir}/mcast-daemon.service
@@ -126,7 +126,7 @@ install -p -D -m 0644 \
 mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/lib/opflex-agent-ovs/endpoints
 mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/lib/opflex-agent-ovs/services
 mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/lib/opflex-agent-ovs/mcast
-mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/lib/opflex-agent-ovs/openvswitch/ids
+#mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/lib/opflex-agent-ovs/openvswitch/ids
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/opflex-agent-ovs/conf.d
 
 %check
@@ -169,8 +169,8 @@ getent group opflexep >/dev/null || groupadd -r opflexep
     fi
 %endif
 
-%post renderer-openvswitch
-/bin/systemctl daemon-reload >dev/null || :
+#%post renderer-openvswitch
+#/bin/systemctl daemon-reload >dev/null || :
 
 %postun
 %if 0%{?systemd_postun_with_restart:1}
@@ -185,8 +185,8 @@ getent group opflexep >/dev/null || groupadd -r opflexep
     fi
 %endif
 
-%postun renderer-openvswitch
-/bin/systemctl daemon-reload >dev/null || :
+#%postun renderer-openvswitch
+#/bin/systemctl daemon-reload >dev/null || :
 
 %files
 %defattr(-,root,root)
@@ -195,7 +195,8 @@ getent group opflexep >/dev/null || groupadd -r opflexep
 %{_bindir}/gbp_inspect
 %config(noreplace) %{_sysconfdir}/opflex-agent-ovs/opflex-agent-ovs.conf
 %dir %{_sysconfdir}/opflex-agent-ovs/conf.d
-%dir %{_sysconfdir}/opflex-agent-ovs/plugins.conf.d
+#%dir %{_sysconfdir}/opflex-agent-ovs/plugins.conf.d
+#%config(noreplace) %{_sysconfdir}/opflex-agent-ovs/plugins.conf.d/
 %{_unitdir}/opflex-agent.service
 %{_unitdir}/mcast-daemon.service
 %{_sysctldir}/90-opflex-agent-sysctl.conf
@@ -205,12 +206,12 @@ getent group opflexep >/dev/null || groupadd -r opflexep
 
 %files -n agent-ovs
 
-%files renderer-openvswitch
-%defattr(-,root,root)
-%{_libdir}/libopflex_agent_renderer_openvswitch.so*
-%config(noreplace) %{_sysconfdir}/opflex-agent-ovs/plugins.conf.d/plugin-renderer-openvswitch.conf
-%dir %{_localstatedir}/lib/opflex-agent-ovs/openvswitch/ids
-%{_unitdir}/opflex-agent.service.d/10-opflex-agent-openvswitch.conf
+#%files renderer-openvswitch
+#%defattr(-,root,root)
+#%{_libdir}/libopflex_agent_renderer_openvswitch.so*
+#%config(noreplace) %{_sysconfdir}/opflex-agent-ovs/plugins.conf.d/plugin-renderer-openvswitch.conf
+#%dir %{_localstatedir}/lib/opflex-agent-ovs/openvswitch/ids
+#%{_unitdir}/opflex-agent.service.d/10-opflex-agent-openvswitch.conf
 
 %files lib
 %defattr(-,root,root)
@@ -220,7 +221,7 @@ getent group opflexep >/dev/null || groupadd -r opflexep
 %defattr(-,root,root)
 %{_bindir}/mock_server
 %{_libdir}/libopflex_agent.la
-%{_libdir}/libopflex_agent_renderer_openvswitch.la
+#%{_libdir}/libopflex_agent_renderer_openvswitch.la
 %{_libdir}/pkgconfig/libopflex_agent.pc
 %{_includedir}/opflexagent/
 

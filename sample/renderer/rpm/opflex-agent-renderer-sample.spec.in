@@ -10,7 +10,7 @@
 %{!?buildversion:%define buildversion @BVERSION@}
 %global _hardened_build 1
 
-Name: opflex-agent-renderer-sample
+Name: renderer-sample
 Epoch: 1
 Version: %{packageversion}
 Release: %{buildversion}%{?dist}
@@ -54,9 +54,13 @@ make %{?_smp_mflags}
 %postun
 /bin/systemctl daemon-reload >dev/null || :
 
+#%define _unpackaged_files_terminate_build 0
+
 %files
 %defattr(-,root,root)
 %{_libdir}/libopflex_agent_renderer_sample.so*
+%{_libdir}/libopflex_agent_renderer_sample.la
+%dir %{_sysconfdir}/opflex-agent-ovs/plugins.conf.d
 %config(noreplace) %{_sysconfdir}/opflex-agent-ovs/plugins.conf.d/plugin-renderer-sample.conf
 
 %changelog

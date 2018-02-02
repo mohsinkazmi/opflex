@@ -302,8 +302,8 @@ mock_server_LDADD = \
 
 agentconfdir=$(sysconfdir)/opflex-agent-ovs
 agentconf_DATA = opflex-agent-ovs.conf
-pluginconfdir=$(sysconfdir)/opflex-agent-ovs/plugins.conf.d
-pluginconf_DATA = plugin-renderer-openvswitch.conf
+#pluginconfdir=$(sysconfdir)/opflex-agent-ovs/plugins.conf.d
+#pluginconf_DATA = plugin-renderer-openvswitch.conf
 
 defepwatchdir=${localstatedir}/lib/opflex-agent-ovs/endpoints
 defservwatchdir=${localstatedir}/lib/opflex-agent-ovs/services
@@ -322,7 +322,7 @@ opflex-agent-ovs.conf: $(top_srcdir)/opflex-agent-ovs.conf.in
 
 flowidcachedir=${localstatedir}/lib/opflex-agent-ovs/ids
 mcastgroupfile=${localstatedir}/lib/opflex-agent-ovs/mcast/opflex-groups.json
-plugin-renderer-openvswitch.conf: $(top_srcdir)/plugin-renderer-openvswitch.conf.in
+#plugin-renderer-openvswitch.conf: $(top_srcdir)/plugin-renderer-openvswitch.conf.in
 	sed -e "s|DEFAULT_FLOWID_CACHE_DIR|${flowidcachedir}|" \
 	    -e "s|DEFAULT_MCAST_GROUP_FILE|${mcastgroupfile}|" \
 	$< > $@
@@ -376,7 +376,9 @@ EXTRA_DIST = \
 	rpm/opflex-agent-openvswitch.conf \
 	rpm/mcast-daemon.service \
 	rpm/90-opflex-agent-sysctl.conf \
-	opflex-agent-ovs.conf.in plugin-renderer-openvswitch.conf.in
+	opflex-agent-ovs.conf.in
+
+#plugin-renderer-openvswitch.conf.in
 
 CWD=`pwd`
 RPMFLAGS=--define "_topdir ${CWD}/rpm"

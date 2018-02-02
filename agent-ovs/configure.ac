@@ -88,7 +88,7 @@ AM_CONDITIONAL(HAVE_DOXYGEN, [test x$DOXYGEN != 'xnone'])
 AC_ARG_ENABLE(renderer-ovs,
               AC_HELP_STRING([--renderer-ovs],
                              [Build the OVS renderer]))
-AM_CONDITIONAL([RENDERER_OVS], [test x$enable_renderer_ovs != 'xno'])
+AM_CONDITIONAL([RENDERER_OVS], [test x$enable_renderer_ovs == 'xyes'])
 AM_COND_IF([RENDERER_OVS],
            [AC_MSG_NOTICE([Open vSwitch renderer is enabled])],
            [AC_MSG_NOTICE([Open vSwitch renderer is disabled])])
