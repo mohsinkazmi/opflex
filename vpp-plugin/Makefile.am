@@ -55,6 +55,8 @@ libopflex_agent_renderer_vpp_la_LDFLAGS = \
 pluginconfdir=$(sysconfdir)/opflex-agent-ovs/plugins.conf.d
 pluginconf_DATA = plugin-renderer-vpp.conf
 
+plugin-renderer-vpp.conf: $(top_srcdir)/plugin-renderer-vpp.conf.in
+
 # Create a unit test driver that links to the plugin convenience
 # library
 TESTS = vpp_test
@@ -76,3 +78,26 @@ vpp_test_SOURCES = \
 	vpp/test/vpp_test.cpp \
 	vpp/test/VPPRenderer_test.cpp \
         vpp/test/VppManager_test.cpp
+
+clean-local:
+	rm -rf *.rpm
+
+CWD=`pwd`
+RPMFLAGS=--define "_topdir ${CWD}/rpm"
+ARCH=x86_64
+SOURCE_FILE=${PACKAGE}-${VERSION}.tar.gz
+RPMDIRS=rpm/BUILD rpm/SOURCES rpm/RPMS rpm/SRPMS
+rpm: dist rpm/opflex-agent-renderer-vpp.spec
+	mkdir -p ${RPMDIRS}
+	cp ${SOURCE_FILE} rpm/SOURCES/
+	rpmbuild ${RPMFLAGS} -ba rpm/opflex-agent-renderer-vpp.spec
+	cp rpm/RPMS/${ARCH}/*.rpm .
+	cp rpm/SRPMS/*.rpm .
+	rm -rf ${RPMDIRS}
+
+srpm: dist rpm/opflex-agent-renderer-vpp.spec
+	mkdir -p ${RPMDIRS}
+	cp ${SOURCE_FILE} rpm/SOURCES/
+	rpmbuild ${RPMFLAGS} -bs rpm/opflex-agent-renderer-vpp.spec
+	cp rpm/SRPMS/*.rpm .
+	rm -rf ${RPMDIRS}

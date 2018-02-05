@@ -75,6 +75,8 @@ fi
 
 AC_CONFIG_FILES([\
         Makefile \
+        plugin-renderer-vpp.conf \
+        rpm/opflex-agent-renderer-vpp.spec
 	])
 AC_OUTPUT
 
