@@ -1,15 +1,15 @@
 {
     "plugins": {
 	// Load vpp renderer plugin
-        "renderer": ["/usr/local/lib/libopflex_agent_renderer_vpp.so"]
+        "renderer": ["libopflex_agent_renderer_vpp.so"]
     },
 
     "renderers": {
         // vpp renderer configuration
-        "vpp": {
+        // "vpp": {
 	//    Put configuration specific to renderer plugin here.
-             "inspect-socket": "/usr/local/var/run/opflex-agent-vpp-inspect.sock",
-             "encap": {
+        //    "inspect-socket": "/usr/local/var/run/opflex-agent-vpp-inspect.sock",
+        //    "encap": {
         //         "vxlan" : {
         //             "encap-iface": "vpp_vxlan0",
         //             // The name of the interface whose IP should be used
@@ -28,43 +28,43 @@
         //
         //             // UDP port number of the encapsulated traffic.
         //              "remote-port": 4789
-        //         }
+        //         },
         //         // Encapsulate traffic with a locally-significant VLAN
         //         // tag
-                 "vlan" : {
+        //         "vlan" : {
         //              "encap-iface": "team0",
         //             // The name of the interface VPP will consue for uplink
-                     "uplink-iface": "veth-uplink",
+        //             "uplink-iface": "veth-uplink",
         //
         //             // The vlan tag, used on the uplink interface.
         //             // for control traffic.
-                     "uplink-vlan": 4093
-                 }
-             },
-             "forwarding": {
+        //             "uplink-vlan": 4093
+        //         }
+        //     },
+        //     "forwarding": {
         //         // Configure the virtual distributed router
-                 "virtual-router": {
+        //         "virtual-router": {
         //             // Enable virtual distributed router.  Set to true
         //             // to enable or false to disable.
         //             // Default: true.
-                     "enabled": true,
+        //             "enabled": true,
         //
         //             // Override MAC address for virtual router.
         //             // Default: "00:22:bd:f8:19:ff"
-                     "mac": "00:22:bd:f8:19:ff",
+        //             "mac": "00:22:bd:f8:19:ff",
         //
         //             // Configure IPv6-related settings for the virtual
         //             // router
-                     "ipv6" : {
+        //             "ipv6" : {
         //                 // Send router advertisement messages in
         //                 // response to router solicitation requests as
         //                 // well as unsolicited advertisements.  This
         //                 // is not required in stitched mode since the
         //                 // hardware router will send them.
-                         "router-advertisement": false
-                     }
-                 }
-            }
-        }
+        //                 "router-advertisement": false
+        //             }
+        //         }
+        //    }
+        // }
     }
 }

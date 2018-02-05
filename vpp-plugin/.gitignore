@@ -48,3 +48,4 @@ m4/lt*.m4
 *.rpm
 *.spec
 *.tar.gz
+*.conf
