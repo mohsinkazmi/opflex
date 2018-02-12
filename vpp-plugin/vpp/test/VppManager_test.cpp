@@ -36,6 +36,7 @@
 #include <vom/route.hpp>
 #include <vom/route_domain.hpp>
 #include <vom/sub_interface.hpp>
+#include <vom/gbp_endpoint.hpp>
 
 #include "opflexagent/test/ModbFixture.h"
 #include "VppManager.h"
@@ -704,6 +705,7 @@ BOOST_FIXTURE_TEST_CASE(endpoint_add_del, VppManagerFixture) {
     for (auto& ipAddr : getEPIps(ep0)) {
         WAIT_FOR_MATCH(bridge_domain_arp_entry(v_bd_epg0, ipAddr, v_mac_ep0));
         WAIT_FOR_MATCH(neighbour(*v_itf_ep0, ipAddr, v_mac_ep0));
+        WAIT_FOR_MATCH(gbp_endpoint(*v_itf_ep0, ipAddr, 0xA0A));
         route::prefix_t subnet_pfx(ipAddr);
         WAIT_FOR_MATCH(route::ip_route(
             v_rd_epg0, subnet_pfx, {*v_itf_ep0,

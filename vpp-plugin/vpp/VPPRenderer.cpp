@@ -10,11 +10,10 @@
  */
 #include <boost/asio/placeholders.hpp>
 
-#include <vom/route.hpp>
-
 #include <opflexagent/logging.h>
 
 #include "VPPRenderer.h"
+#include "VppLogHandler.h"
 
 namespace vpprenderer {
 
@@ -40,11 +39,38 @@ VPPRendererPlugin::create(opflexagent::Agent& agent) const {
     return new VPPRenderer(agent, idGen, vppQ, vppManager);
 }
 
+VppLogHandler vppLogHandler;
+
+static VOM::log_level_t agentLevelToVom(opflexagent::LogLevel level)
+{
+    switch (level)
+    {
+    case opflexagent::DEBUG:
+        return (VOM::log_level_t::DEBUG);
+    case opflexagent::INFO:
+        return (VOM::log_level_t::INFO);
+    case opflexagent::WARNING:
+        return (VOM::log_level_t::WARNING);
+    case opflexagent::ERROR:
+        return (VOM::log_level_t::ERROR);
+    case opflexagent::FATAL:
+        return (VOM::log_level_t::CRITICAL);
+    }
+    return (VOM::log_level_t::INFO);
+}
+
 VPPRenderer::VPPRenderer(opflexagent::Agent& agent, IdGenerator *idGen,
                          VOM::HW::cmd_q *vppQ, VppManager *vppManager)
     : Renderer(agent), idGen(idGen), vppQ(vppQ), vppManager(vppManager),
       started(false) {
     LOG(INFO) << "Vpp Renderer";
+
+    /*
+     * Register the call back handler for VOM logging and set the level
+     * according to the agent's settings
+     */
+    VOM::logger().set(agentLevelToVom(opflexagent::logLevel));
+    VOM::logger().set(&vppLogHandler);
 }
 
 VPPRenderer::~VPPRenderer() {

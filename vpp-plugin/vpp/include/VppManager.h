@@ -211,6 +211,17 @@ private:
      */
     void handlePortStatusUpdate(const std::string& portName, uint32_t portNo);
 
+    /**
+     * Get the VNID for the specified endpoint groups or L3 external
+     * networks
+     *
+     * @param uris URIs of endpoint groups to search for
+     * @param ids the corresponding set of vnids
+     */
+    void getGroupVnid(const std::unordered_set<opflex::modb::URI>& uris,
+                      std::unordered_set<uint32_t>& ids);
+    uint32_t getExtNetVnid(const opflex::modb::URI& uri);
+
     bool getGroupForwardingInfo(const opflex::modb::URI& egUri, uint32_t& vnid,
                                 boost::optional<opflex::modb::URI>& rdURI,
                                 uint32_t& rdId, uint32_t& rbdId,

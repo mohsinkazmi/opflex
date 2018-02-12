@@ -50,6 +50,8 @@
 #include <vom/om.hpp>
 #include <vom/route.hpp>
 #include <vom/route_domain.hpp>
+#include <vom/gbp_endpoint.hpp>
+#include <vom/gbp_contract.hpp>
 
 using std::string;
 using std::shared_ptr;
@@ -756,6 +758,12 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
              */
             VOM::neighbour ne(itf, ipAddr, {macAddr});
             VOM::OM::write(uuid, ne);
+
+            /*
+             * add a GDBP endpoint
+             */
+            VOM::gbp_endpoint gbpe(itf, ipAddr, epgVnid);
+            VOM::OM::write(uuid, gbpe);
         }
 
         /*
@@ -1301,15 +1309,43 @@ void VppManager::handleDhcpEvent(VOM::dhcp_config_cmds::events_cmd* e) {
     m_uplink.handle_dhcp_event(e);
 }
 
+void VppManager::getGroupVnid(const unordered_set<URI>& uris,
+                              unordered_set<uint32_t>& ids) {
+    PolicyManager& pm = agent.getPolicyManager();
+    for (const URI& u : uris) {
+        optional<uint32_t> vnid = pm.getVnidForGroup(u);
+        optional<shared_ptr<RoutingDomain> > rd;
+        if (vnid) {
+            rd = pm.getRDForGroup(u);
+        } else {
+            rd = pm.getRDForL3ExtNet(u);
+            if (rd) {
+                vnid = getExtNetVnid(u);
+            }
+        }
+        if (vnid && rd) {
+            ids.insert(vnid.get());
+        }
+    }
+}
+uint32_t VppManager::getExtNetVnid(const opflex::modb::URI& uri) {
+    // External networks are assigned private VNIDs that have bit 31 (MSB)
+    // set to 1. This is fine because legal VNIDs are 24-bits or less.
+    return (getId(L3ExternalNetwork::CLASS_ID, uri) | (1 << 31));
+}
+
 void VppManager::handleContractUpdate(const opflex::modb::URI& contractURI) {
     LOG(DEBUG) << "Updating contract " << contractURI;
     if (stopping)
         return;
 
-    const string& contractId = contractURI.toString();
+    const string& uuid = contractURI.toString();
+
+    VOM::OM::mark_n_sweep ms(uuid);
+
     PolicyManager& polMgr = agent.getPolicyManager();
-    if (!polMgr.contractExists(contractURI)) { // Contract removed
-        idGen.erase(getIdNamespace(Contract::CLASS_ID), contractURI.toString());
+    if (!polMgr.contractExists(contractURI)) {
+        // Contract removed
         return;
     }
 
@@ -1320,41 +1356,66 @@ void VppManager::handleContractUpdate(const opflex::modb::URI& contractURI) {
     polMgr.getContractConsumers(contractURI, consURIs);
     polMgr.getContractIntra(contractURI, intraURIs);
 
+    typedef unordered_set<uint32_t> id_set_t;
+    id_set_t provIds;
+    id_set_t consIds;
+    id_set_t intraIds;
+    getGroupVnid(provURIs, provIds);
+    getGroupVnid(consURIs, consIds);
+
     PolicyManager::rule_list_t rules;
     polMgr.getContractRules(contractURI, rules);
 
-    for (const URI& p : provURIs) {
-        for (const URI& c : consURIs) {
-            if (p == c)
+    for (const uint32_t& pvnid : provIds) {
+        for (const uint32_t& cvnid : consIds) {
+            if (pvnid == cvnid)
                 continue;
 
-            bool allowBidirectional =
-                provURIs.find(c) == provURIs.end() ||
-                consURIs.find(p) == consURIs.end();
+            /* bool allowBidirectional = */
+            /*     provIds.find(cvnid) == provIds.end() || */
+            /*     consIds.find(pvnid) == consIds.end(); */
 
-            for (const shared_ptr<PolicyRule>& pc : rules) {
-                uint8_t dir = pc->getDirection();
-                const shared_ptr<L24Classifier>& cls = pc->getL24Classifier();
-                uint32_t priority = pc->getPriority();
-                uint16_t etherType =
-                    cls->getEtherT(EtherTypeEnumT::CONST_UNSPECIFIED);
-                    VOM::ACL::action_t act = VOM::ACL::action_t::from_bool(
-                        pc->getAllow(),
-                        cls->getConnectionTracking(ConnTrackEnumT::CONST_NORMAL));
+            /* for (const shared_ptr<PolicyRule>& pc : rules) { */
+            /*     uint8_t dir = pc->getDirection(); */
+            /*     const shared_ptr<L24Classifier>& cls = pc->getL24Classifier(); */
+            /*     uint32_t priority = pc->getPriority(); */
+            /*     uint16_t etherType = */
+            /*         cls->getEtherT(EtherTypeEnumT::CONST_UNSPECIFIED); */
+            /*         VOM::ACL::action_t act = VOM::ACL::action_t::from_bool( */
+            /*             pc->getAllow(), */
+            /*             cls->getConnectionTracking(ConnTrackEnumT::CONST_NORMAL)); */
 
-                if (dir == DirectionEnumT::CONST_BIDIRECTIONAL &&
-                    !allowBidirectional) {
-                    dir = DirectionEnumT::CONST_IN;
-                }
-                if (dir == DirectionEnumT::CONST_IN ||
-                    dir == DirectionEnumT::CONST_BIDIRECTIONAL) {
-                    // code here
-                }
-                if (dir == DirectionEnumT::CONST_OUT ||
-                    dir == DirectionEnumT::CONST_BIDIRECTIONAL) {
-		    // code here
-                }
-            }
+            /*     if (dir == DirectionEnumT::CONST_BIDIRECTIONAL && */
+            /*         !allowBidirectional) { */
+            /*         dir = DirectionEnumT::CONST_IN; */
+            /*     } */
+            /*     if (dir == DirectionEnumT::CONST_IN || */
+            /*         dir == DirectionEnumT::CONST_BIDIRECTIONAL) { */
+            /*         // code here */
+            /*     } */
+            /*     if (dir == DirectionEnumT::CONST_OUT || */
+            /*         dir == DirectionEnumT::CONST_BIDIRECTIONAL) { */
+	    /*         // code here */
+            /*     } */
+            /* } */
+
+            /*
+             * At this point we are implementing only the neutron virtual
+             * router concept. So we use a permit any-any rule and rely
+             * only on the GDBP EPG restructions
+             */
+            route::prefix_t pfx = route::prefix_t::ZERO;
+
+            VOM::ACL::l3_rule rule(0,
+                                   VOM::ACL::action_t::PERMIT,
+                                   route::prefix_t::ZERO,
+                                   route::prefix_t::ZERO);
+
+            VOM::ACL::l3_list acl(uuid, {rule});
+            VOM::OM::write(uuid, acl);
+
+            VOM::gbp_contract gbpc(pvnid, cvnid, acl);
+            VOM::OM::write(uuid, gbpc);
         }
     }
 
