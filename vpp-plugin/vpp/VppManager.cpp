@@ -588,6 +588,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
 
     if (!agent.getEndpointManager().secGrpSetEmpty(secGrps)) {
         VOM::ACL::l3_list::rules_t in_rules, out_rules;
+        VOM::ACL::acl_ethertype::ethertype_rules_t ethertype_rules;
 
         optional<Endpoint::DHCPv4Config> v4c = endPoint.getDHCPv4Config();
         if (v4c)
@@ -597,7 +598,13 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         if (v6c)
             allowDhcpRequest(in_rules, EtherTypeEnumT::CONST_IPV6);
 
-        buildSecGrpSetUpdate(secGrps, secGrpId, in_rules, out_rules);
+        buildSecGrpSetUpdate(secGrps, secGrpId, in_rules, out_rules,
+                             ethertype_rules);
+
+        if (!ethertype_rules.empty()) {
+            VOM::ACL::acl_ethertype a_e(itf, ethertype_rules);
+            VOM::OM::write(uuid, a_e);
+        }
         if (!in_rules.empty()) {
             VOM::ACL::l3_list in_acl(secGrpId + "in", in_rules);
             VOM::OM::write(secGrpId, in_acl);
@@ -1587,7 +1594,9 @@ void setParamUpdate(L24Classifier& cls, VOM::ACL::l3_rule& rule) {
 void VppManager::buildSecGrpSetUpdate(const uri_set_t& secGrps,
                                       const std::string& secGrpId,
                                       VOM::ACL::l3_list::rules_t& in_rules,
-                                      VOM::ACL::l3_list::rules_t& out_rules) {
+                                      VOM::ACL::l3_list::rules_t& out_rules,
+                                      VOM::ACL::acl_ethertype::ethertype_rules_t&
+                                      ethertype_rules) {
     LOG(DEBUG) << "building security group update";
 
     if (agent.getEndpointManager().secGrpSetEmpty(secGrps)) {
@@ -1603,16 +1612,29 @@ void VppManager::buildSecGrpSetUpdate(const uri_set_t& secGrps,
             uint8_t dir = pc->getDirection();
             const shared_ptr<L24Classifier>& cls = pc->getL24Classifier();
             uint32_t priority = pc->getPriority();
-            uint16_t etherType =
-                cls->getEtherT(EtherTypeEnumT::CONST_UNSPECIFIED);
+            const ethertype_t& etherType =
+                ethertype_t::from_numeric_val(cls->getEtherT(
+                EtherTypeEnumT::CONST_UNSPECIFIED));
             VOM::ACL::action_t act = VOM::ACL::action_t::from_bool(
                 pc->getAllow(),
                 cls->getConnectionTracking(ConnTrackEnumT::CONST_NORMAL));
 
+            if (dir == DirectionEnumT::CONST_BIDIRECTIONAL ||
+                        dir == DirectionEnumT::CONST_IN) {
+                VOM::ACL::ethertype_rule_t et(etherType, direction_t::OUTPUT);
+                ethertype_rules.insert(et);
+            }
+            if (dir == DirectionEnumT::CONST_BIDIRECTIONAL ||
+                        dir == DirectionEnumT::CONST_OUT) {
+                VOM::ACL::ethertype_rule_t et(etherType, direction_t::INPUT);
+                ethertype_rules.insert(et);
+            }
+
             if (etherType != EtherTypeEnumT::CONST_IPV4 && etherType !=
                 EtherTypeEnumT::CONST_IPV6) {
-                LOG(WARNING) << "Security Group Rule for Protocol 0x" << std::hex <<
-                    etherType << " ,(IPv4/IPv6) Security Rules are allowed";
+                LOG(WARNING) << "Security Group Rule for Protocol " <<
+                    etherType.to_string() << " ,(IPv4/IPv6) Security" <<
+                    "Rules are allowed";
                 continue;
             }
 
@@ -1676,16 +1698,21 @@ void VppManager::handleSecGrpSetUpdate(const uri_set_t& secGrps) {
     LOG(DEBUG) << "Updating security group set";
     if (stopping)
         return;
+
     VOM::ACL::l3_list::rules_t in_rules, out_rules;
+    VOM::ACL::acl_ethertype::ethertype_rules_t ethertype_rules;
     const std::string secGrpId = getSecGrpSetId(secGrps);
     shared_ptr<VOM::ACL::l3_list> in_acl, out_acl;
 
-    buildSecGrpSetUpdate(secGrps, secGrpId, in_rules, out_rules);
+    buildSecGrpSetUpdate(secGrps, secGrpId, in_rules, out_rules,
+                         ethertype_rules);
 
-    if (in_rules.empty() && out_rules.empty()) {
+    if (in_rules.empty() && out_rules.empty() && ethertype_rules.empty()) {
         LOG(WARNING) << "in and out rules are empty";
 	return;
     }
+
+    VOM::OM::mark_n_sweep ms(secGrpId);
 
     if (!in_rules.empty()) {
         VOM::ACL::l3_list inAcl(secGrpId + "in", in_rules);
@@ -1716,6 +1743,9 @@ void VppManager::handleSecGrpSetUpdate(const uri_set_t& secGrps) {
 
         if (!itf)
             continue;
+
+        VOM::ACL::acl_ethertype a_e(*itf, ethertype_rules);
+        VOM::OM::write(uuid, a_e);
 
         if (!in_rules.empty()) {
             VOM::ACL::l3_binding in_binding(direction_t::INPUT, *itf, *in_acl);

@@ -996,6 +996,15 @@ BOOST_FIXTURE_TEST_CASE(secGroup, VppManagerFixture) {
                                      interface::admin_state_t::UP, v_rd);
     WAIT_FOR1(is_match(*v_itf));
 
+    ACL::ethertype_rule_t e1(ethertype_t::IPV4, direction_t::OUTPUT);
+    ACL::ethertype_rule_t e2(ethertype_t::IPV6, direction_t::OUTPUT);
+    ACL::ethertype_rule_t e3(ethertype_t::IPV4, direction_t::OUTPUT);
+    ACL::ethertype_rule_t e4(ethertype_t::IPV4, direction_t::OUTPUT);
+
+    ACL::acl_ethertype::ethertype_rules_t e_rules = {e1, e2, e3, e4};
+
+    WAIT_FOR1(is_match(ACL::acl_ethertype(*v_itf, e_rules)));
+
     ACL::action_t act = ACL::action_t::PERMIT;
     ACL::l3_rule rule1(8192, act, route::prefix_t::ZERO, route::prefix_t::ZERO,
                        6, 0, 65535, 80, 65535, 0, 0);
@@ -1035,6 +1044,14 @@ BOOST_FIXTURE_TEST_CASE(secGroup, VppManagerFixture) {
                 policyMgr.getSecGroupRules(secGrp2->getURI(), lrules));
 
     vppManager.secGroupUpdated(secGrp2->getURI());
+
+    ACL::ethertype_rule_t e6(ethertype_t::FCOE, direction_t::OUTPUT);
+    ACL::ethertype_rule_t e7(ethertype_t::FCOE, direction_t::INPUT);
+    ACL::ethertype_rule_t e8(ethertype_t::IPV4, direction_t::INPUT);
+
+    ACL::acl_ethertype::ethertype_rules_t e_rules2 = {e1, e2, e3, e4, e6, e7, e8};
+
+    WAIT_FOR_MATCH(ACL::acl_ethertype(*v_itf, e_rules2));
 
     act = ACL::action_t::PERMITANDREFLEX;
     ACL::l3_rule rule5(8064, act, route::prefix_t::ZERO, route::prefix_t::ZERO,

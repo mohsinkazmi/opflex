@@ -15,6 +15,7 @@
 #include <boost/noncopyable.hpp>
 #include <boost/optional.hpp>
 
+#include <vom/acl_ethertype.hpp>
 #include <vom/acl_list.hpp>
 #include <vom/dhcp_config.hpp>
 #include <vom/dhcp_config_cmds.hpp>
@@ -195,7 +196,9 @@ private:
     void buildSecGrpSetUpdate(const uri_set_t& secGrps,
                               const std::string& secGrpId,
                               VOM::ACL::l3_list::rules_t& in_rules,
-                              VOM::ACL::l3_list::rules_t& out_rules);
+                              VOM::ACL::l3_list::rules_t& out_rules,
+                              VOM::ACL::acl_ethertype::ethertype_rules_t&
+                              ethertype_rules);
     /**
      * Compare and update changes in platform config
      *
