@@ -460,6 +460,15 @@ static string getEpBridgeInterface(const Endpoint& endPoint) {
         return {};
 }
 
+static VOM::interface::type_t getIntfTypeFromName(string name) {
+    if (name.find("vhost") != string::npos)
+        return VOM::interface::type_t::VHOST;
+    else if (name.find("tap") != string::npos)
+        return VOM::interface::type_t::TAP;
+
+    return VOM::interface::type_t::AFPACKET;
+}
+
 void VppManager::importEPAddress(const string& ep_uuid, const URI& ep_epgURI,
                                  vector<address>& ipAddresses,
                                  const VOM::interface& ep_itf,
@@ -571,8 +580,9 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
     if (0 == epItfName.length())
         return;
 
-    VOM::interface itf(epItfName, VOM::interface::type_t::AFPACKET,
-                       VOM::interface::admin_state_t::UP, rd);
+    VOM::interface itf(epItfName, getIntfTypeFromName(epItfName),
+                           VOM::interface::admin_state_t::UP, rd, uuid);
+
     VOM::OM::write(uuid, itf);
 
     /*
@@ -1262,7 +1272,7 @@ void VppManager::handleInterfaceStat(VOM::interface_cmds::stats_enable_cmd* e) {
     for (auto& msg : *e) {
         auto& payload = msg.get_payload();
 
-        for (int i = 0; i < payload.count; ++i) {
+        for (int i = 0; i < payload.count; i++) {
             EndpointManager::EpCounters counters;
             std::unordered_set<std::string> endpoints;
             auto& data = payload.data[i];
