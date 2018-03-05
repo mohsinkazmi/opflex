@@ -96,11 +96,20 @@ void Uplink::handle_dhcp_event(dhcp_config_cmds::events_cmd* ec) {
     ec->flush();
 }
 
+static VOM::interface::type_t getIntfTypeFromName(std::string name) {
+    if (name.find("Ethernet") != std::string::npos)
+        return VOM::interface::type_t::ETHERNET;
+    else if (name.find("tap") != std::string::npos)
+        return VOM::interface::type_t::TAP;
+
+    return VOM::interface::type_t::AFPACKET;
+}
+
 void Uplink::configure(const std::string& fqdn) {
     /*
      * Consruct the uplink physical, so we now 'own' it
      */
-    interface itf(m_iface, interface::type_t::ETHERNET,
+    interface itf(m_iface, getIntfTypeFromName(m_iface),
                   interface::admin_state_t::UP);
     OM::write(UPLINK_KEY, itf);
 
