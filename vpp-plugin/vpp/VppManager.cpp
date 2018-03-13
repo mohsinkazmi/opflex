@@ -567,7 +567,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
     /*
      * the route-domain the endpoint is in. This is a per-brige-domain
      * route-domain. per-bridge-domain implies per-EPG and hence all
-     *routes therein can have paths via the per-EPG uplink interface.
+     * routes therein can have paths via the per-EPG uplink interface.
      */
     route_domain rd(rbdId);
     VOM::OM::write(uuid, rd);
@@ -596,39 +596,46 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
      */
     itf.enable_stats(*this);
 
-    if (!agent.getEndpointManager().secGrpSetEmpty(secGrps)) {
-        VOM::ACL::l3_list::rules_t in_rules, out_rules;
-        VOM::ACL::acl_ethertype::ethertype_rules_t ethertype_rules;
+    /*
+     * Apply Security Groups
+     */
+    VOM::ACL::l3_list::rules_t in_rules, out_rules;
+    VOM::ACL::acl_ethertype::ethertype_rules_t ethertype_rules;
 
-        optional<Endpoint::DHCPv4Config> v4c = endPoint.getDHCPv4Config();
-        if (v4c)
-            allowDhcpRequest(in_rules, EtherTypeEnumT::CONST_IPV4);
+    optional<Endpoint::DHCPv4Config> v4c = endPoint.getDHCPv4Config();
+    if (v4c) {
+        VOM::ACL::ethertype_rule_t et(ethertype_t::IPV4, direction_t::INPUT);
+        ethertype_rules.insert(et);
+        allowDhcpRequest(in_rules, EtherTypeEnumT::CONST_IPV4);
+    }
+    optional<Endpoint::DHCPv6Config> v6c = endPoint.getDHCPv6Config();
+    if (v6c) {
+        VOM::ACL::ethertype_rule_t et(ethertype_t::IPV6, direction_t::INPUT);
+        ethertype_rules.insert(et);
+        allowDhcpRequest(in_rules, EtherTypeEnumT::CONST_IPV6);
+    }
 
-        optional<Endpoint::DHCPv6Config> v6c = endPoint.getDHCPv6Config();
-        if (v6c)
-            allowDhcpRequest(in_rules, EtherTypeEnumT::CONST_IPV6);
-
+    if (!secGrps.empty())
         buildSecGrpSetUpdate(secGrps, secGrpId, in_rules, out_rules,
                              ethertype_rules);
 
-        if (!ethertype_rules.empty()) {
-            VOM::ACL::acl_ethertype a_e(itf, ethertype_rules);
-            VOM::OM::write(uuid, a_e);
-        }
-        if (!in_rules.empty()) {
-            VOM::ACL::l3_list in_acl(secGrpId + "in", in_rules);
-            VOM::OM::write(secGrpId, in_acl);
+    if (!ethertype_rules.empty()) {
+        VOM::ACL::acl_ethertype a_e(itf, ethertype_rules);
+        VOM::OM::write(uuid, a_e);
+    }
+    if (!in_rules.empty()) {
+        VOM::ACL::l3_list in_acl(secGrpId + "in", in_rules);
+        VOM::OM::write(uuid, in_acl);
 
-            VOM::ACL::l3_binding in_binding(direction_t::INPUT, itf, in_acl);
-            VOM::OM::write(uuid, in_binding);
-        }
-        if (!out_rules.empty()) {
-            VOM::ACL::l3_list out_acl(secGrpId + "out", out_rules);
-            VOM::OM::write(secGrpId, out_acl);
+        VOM::ACL::l3_binding in_binding(direction_t::INPUT, itf, in_acl);
+        VOM::OM::write(uuid, in_binding);
+    }
+    if (!out_rules.empty()) {
+        VOM::ACL::l3_list out_acl(secGrpId + "out", out_rules);
+        VOM::OM::write(uuid, out_acl);
 
-            VOM::ACL::l3_binding out_binding(direction_t::OUTPUT, itf, out_acl);
-            VOM::OM::write(uuid, out_binding);
-        }
+        VOM::ACL::l3_binding out_binding(direction_t::OUTPUT, itf, out_acl);
+        VOM::OM::write(uuid, out_binding);
     }
 
     uint8_t macAddr[6];
@@ -1607,12 +1614,12 @@ void VppManager::buildSecGrpSetUpdate(const uri_set_t& secGrps,
                                       VOM::ACL::l3_list::rules_t& out_rules,
                                       VOM::ACL::acl_ethertype::ethertype_rules_t&
                                       ethertype_rules) {
-    LOG(DEBUG) << "building security group update";
-
-    if (agent.getEndpointManager().secGrpSetEmpty(secGrps)) {
+    if (!secGrps.empty()) {
        // VOM::OM::remove(secGrpId);
         return;
     }
+
+    LOG(DEBUG) << "building security group update";
 
     for (const opflex::modb::URI& secGrp : secGrps) {
         PolicyManager::rule_list_t rules;
@@ -1705,7 +1712,7 @@ void VppManager::buildSecGrpSetUpdate(const uri_set_t& secGrps,
 }
 
 void VppManager::handleSecGrpSetUpdate(const uri_set_t& secGrps) {
-    LOG(DEBUG) << "Updating security group set";
+/*    LOG(DEBUG) << "Updating security group set";
     if (stopping)
         return;
 
@@ -1722,25 +1729,13 @@ void VppManager::handleSecGrpSetUpdate(const uri_set_t& secGrps) {
 	return;
     }
 
-    VOM::OM::mark_n_sweep ms(secGrpId);
-
-    if (!in_rules.empty()) {
-        VOM::ACL::l3_list inAcl(secGrpId + "in", in_rules);
-        in_acl = inAcl.singular();
-        VOM::OM::write(secGrpId, *in_acl);
-    }
-
-    if (!out_rules.empty()) {
-        VOM::ACL::l3_list outAcl(secGrpId + "out", out_rules);
-        out_acl = outAcl.singular();
-        VOM::OM::write(secGrpId, *out_acl);
-    }
-
     EndpointManager& epMgr = agent.getEndpointManager();
     std::unordered_set<std::string> eps;
     epMgr.getEndpointsForSecGrps(secGrps, eps);
 
     for (const std::string& uuid : eps) {
+
+        VOM::OM::mark_n_sweep ms(uuid);
 
         const Endpoint& endPoint = *epMgr.getEndpoint(uuid).get();
         const string vppInterfaceName = getEpBridgeInterface(endPoint);
@@ -1754,19 +1749,26 @@ void VppManager::handleSecGrpSetUpdate(const uri_set_t& secGrps) {
         if (!itf)
             continue;
 
-        VOM::ACL::acl_ethertype a_e(*itf, ethertype_rules);
-        VOM::OM::write(uuid, a_e);
-
+        if (!ethertype_rules.empty()) {
+            VOM::ACL::acl_ethertype a_e(*itf, ethertype_rules);
+            VOM::OM::write(uuid, a_e);
+        }
         if (!in_rules.empty()) {
-            VOM::ACL::l3_binding in_binding(direction_t::INPUT, *itf, *in_acl);
+            VOM::ACL::l3_list inAcl(secGrpId + "in", in_rules);
+            VOM::OM::write(uuid, inAcl);
+
+            VOM::ACL::l3_binding in_binding(direction_t::INPUT, *itf, inAcl);
             VOM::OM::write(uuid, in_binding);
         }
         if (!out_rules.empty()) {
+            VOM::ACL::l3_list outAcl(secGrpId + "out", out_rules);
+            VOM::OM::write(uuid, outAcl);
             VOM::ACL::l3_binding out_binding(direction_t::OUTPUT, *itf,
-                                             *out_acl);
+                                             outAcl);
             VOM::OM::write(uuid, out_binding);
         }
     }
+*/
 }
 
 }; // namespace opflexagent
