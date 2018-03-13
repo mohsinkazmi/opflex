@@ -48,7 +48,7 @@ std::shared_ptr<VOM::interface> Uplink::mk_interface(const std::string& uuid,
 }
 
 void Uplink::configure_tap(const route::prefix_t& pfx) {
-    tap_interface itf("tuntap-0", interface::admin_state_t::UP, pfx);
+    tap_interface itf("tapcli-0", interface::admin_state_t::UP, pfx);
     VOM::OM::write(UPLINK_KEY, itf);
 
     /*
@@ -117,6 +117,14 @@ void Uplink::configure(const std::string& fqdn) {
      * Find and save the interface this created
      */
     m_uplink = itf.singular();
+
+    /*
+     * Own the v4 and v6 global tables
+     */
+    route_domain v4_gbl(0);
+    OM::write(UPLINK_KEY, v4_gbl);
+    route_domain v6_gbl(0);
+    OM::write(UPLINK_KEY, v6_gbl);
 
     /**
      * Enable LLDP on this uplionk
