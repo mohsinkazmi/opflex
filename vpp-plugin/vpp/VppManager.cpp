@@ -615,9 +615,8 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         allowDhcpRequest(in_rules, EtherTypeEnumT::CONST_IPV6);
     }
 
-    if (!secGrps.empty())
-        buildSecGrpSetUpdate(secGrps, secGrpId, in_rules, out_rules,
-                             ethertype_rules);
+    buildSecGrpSetUpdate(secGrps, secGrpId, in_rules, out_rules,
+                         ethertype_rules);
 
     if (!ethertype_rules.empty()) {
         VOM::ACL::acl_ethertype a_e(itf, ethertype_rules);
@@ -1614,7 +1613,7 @@ void VppManager::buildSecGrpSetUpdate(const uri_set_t& secGrps,
                                       VOM::ACL::l3_list::rules_t& out_rules,
                                       VOM::ACL::acl_ethertype::ethertype_rules_t&
                                       ethertype_rules) {
-    if (!secGrps.empty()) {
+    if (secGrps.empty()) {
        // VOM::OM::remove(secGrpId);
         return;
     }
