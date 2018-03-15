@@ -10,6 +10,9 @@
 #ifndef OPFLEXAGNET_VPPUPLINK_H__
 #define OPFLEXAGENT_VPPUPLINK_H__
 
+#include <unordered_set>
+
+#include <vom/bond_group_binding.hpp>
 #include <vom/dhcp_config.hpp>
 #include <vom/dhcp_config_cmds.hpp>
 #include <vom/tap_interface.hpp>
@@ -76,6 +79,16 @@ public:
      */
     void handle_dhcp_event(dhcp_config_cmds::events_cmd* cmd);
 
+    /**
+     * insert the new slave interface in the slave_ifaces
+     */
+    void insert_slave_ifaces(std::string name);
+
+    /**
+     * update the slave_ifaces set with the given set (slaves)
+     */
+    void add_slave_ifaces(std::unordered_set<std::string> slaves);
+
 private:
     /**
      * Configure the tap interface
@@ -98,6 +111,11 @@ private:
     std::shared_ptr<interface> m_uplink;
 
     /**
+     * set of slave interfaces
+     */
+    std::shared_ptr<bond_group_binding> m_bond_group;
+
+    /**
      * The VLAN used for control traffic
      */
     uint16_t m_vlan;
@@ -106,6 +124,11 @@ private:
      * The name of the uplink interface
      */
     std::string m_iface;
+
+    /**
+     * The name of the slave interfaces (in case of Bond)
+     */
+    std::unordered_set<std::string> slave_ifaces;
 };
 };
 

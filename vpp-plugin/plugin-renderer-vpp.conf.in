@@ -27,15 +27,19 @@
         //             "remote-ip": "10.0.0.32",
         //
         //             // UDP port number of the encapsulated traffic.
-        //              "remote-port": 4789
+        //             "remote-port": 4789
         //         },
         //         // Encapsulate traffic with a locally-significant VLAN
         //         // tag
         //         "vlan" : {
-        //              "encap-iface": "team0",
-        //             // The name of the interface VPP will consue for uplink
+        //             "encap-iface": "team0",
+        //             // The name of the interface VPP will consume for uplink
         //             "uplink-iface": "veth-uplink",
-        //
+        //             "uplink-iface": "BondEthernet0",
+        //             "uplink-slaves" : [
+        //                 "veth-uplink1",
+        //                 "veth-uplink2"
+        //             ],
         //             // The vlan tag, used on the uplink interface.
         //             // for control traffic.
         //             "uplink-vlan": 4093

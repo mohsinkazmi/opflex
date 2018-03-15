@@ -90,6 +90,7 @@ setProperties(const boost::property_tree::ptree& properties) {
     static const std::string ENCAP_IVXLAN("encap.ivxlan");
     static const std::string ENCAP_VLAN("encap.vlan");
     static const std::string UPLINK_IFACE("uplink-iface");
+    static const std::string UPLINK_SLAVES("uplink-slaves");
     static const std::string UPLINK_VLAN("uplink-vlan");
     static const std::string ENCAP_IFACE("encap-iface");
     static const std::string REMOTE_IP("remote-ip");
@@ -109,6 +110,14 @@ setProperties(const boost::property_tree::ptree& properties) {
         vppManager->uplink().set(vlan.get().get<std::string>(UPLINK_IFACE, ""),
                                 vlan.get().get<uint16_t>(UPLINK_VLAN, 0),
                                 vlan.get().get<std::string>(ENCAP_IFACE, ""));
+        auto slaves = vlan.get().get_child_optional(UPLINK_SLAVES);
+
+        if (slaves) {
+            for (auto s : slaves.get()) {
+                vppManager->uplink().insert_slave_ifaces(s.second.data());
+                LOG(opflexagent::INFO) << s.second.data();
+            }
+        }
     } else if (vxlan) {
         boost::asio::ip::address remote_ip;
         boost::system::error_code ec;
@@ -126,6 +135,7 @@ setProperties(const boost::property_tree::ptree& properties) {
                 vxlan.get().get<uint16_t>(UPLINK_VLAN, 0),
                 vxlan.get().get<std::string>(ENCAP_IFACE, ""), remote_ip,
                 vxlan.get().get<uint16_t>(REMOTE_PORT, 4789));
+            auto slaves = properties.get_child_optional(UPLINK_SLAVES);
         }
     }
     if (vr) {

@@ -17,6 +17,8 @@
 #include "vom/lldp_binding.hpp"
 #include "vom/lldp_global.hpp"
 #include "vom/sub_interface.hpp"
+#include "vom/bond_interface.hpp"
+#include "vom/bond_member.hpp"
 
 using namespace VOM;
 
@@ -96,8 +98,10 @@ void Uplink::handle_dhcp_event(dhcp_config_cmds::events_cmd* ec) {
     ec->flush();
 }
 
-static VOM::interface::type_t getIntfTypeFromName(std::string name) {
-    if (name.find("Ethernet") != std::string::npos)
+static VOM::interface::type_t getIntfTypeFromName(std::string& name) {
+    if (name.find("Bond") != std::string::npos)
+        return VOM::interface::type_t::BOND;
+    else if (name.find("Ethernet") != std::string::npos)
         return VOM::interface::type_t::ETHERNET;
     else if (name.find("tap") != std::string::npos)
         return VOM::interface::type_t::TAP;
@@ -109,14 +113,32 @@ void Uplink::configure(const std::string& fqdn) {
     /*
      * Consruct the uplink physical, so we now 'own' it
      */
-    interface itf(m_iface, getIntfTypeFromName(m_iface),
-                  interface::admin_state_t::UP);
-    OM::write(UPLINK_KEY, itf);
-
-    /*
-     * Find and save the interface this created
-     */
-    m_uplink = itf.singular();
+    VOM::interface::type_t type = getIntfTypeFromName(m_iface);
+    if (VOM::interface::type_t::BOND == type) {
+        m_uplink = bond_interface(m_iface, interface::admin_state_t::UP,
+                                  bond_interface::mode_t::LACP,
+				  bond_interface::lb_t::L2).singular();
+        OM::write(UPLINK_KEY, *m_uplink);
+        bond_group_binding::enslaved_itf_t slave_itfs;
+        for (auto sif : slave_ifaces) {
+            std::shared_ptr<interface> itf_ptr = interface(sif,
+                getIntfTypeFromName(sif), interface::admin_state_t::UP)
+                    .singular();
+            OM::write(UPLINK_KEY, *itf_ptr);
+            bond_member bm(*itf_ptr, bond_member::mode_t::ACTIVE, bond_member::rate_t::SLOW);
+            slave_itfs.insert(bm);
+        }
+        if (!slave_itfs.empty()) {
+           m_bond_group = bond_group_binding(
+               *(std::dynamic_pointer_cast<bond_interface>(m_uplink)),
+               slave_itfs)
+                   .singular();
+           OM::write(UPLINK_KEY, *m_bond_group);
+        }
+    } else {
+        m_uplink = interface(m_iface, type, interface::admin_state_t::UP).singular();
+        OM::write(UPLINK_KEY, *m_uplink);
+    }
 
     /*
      * Own the v4 and v6 global tables
@@ -138,7 +160,7 @@ void Uplink::configure(const std::string& fqdn) {
      * now create the sub-interface on which control and data traffic from
      * the upstream leaf will arrive
      */
-    sub_interface subitf(itf, interface::admin_state_t::UP, m_vlan);
+    sub_interface subitf(*m_uplink, interface::admin_state_t::UP, m_vlan);
     OM::write(UPLINK_KEY, subitf);
 
     /**
@@ -163,7 +185,7 @@ void Uplink::configure(const std::string& fqdn) {
      * in VPP and we won't get notified. So let's cehck here if there alreay
      * exists an L3 config on the interface
      */
-    std::deque<std::shared_ptr<l3_binding>> l3s = l3_binding::find(itf);
+    std::deque<std::shared_ptr<l3_binding>> l3s = l3_binding::find(*m_uplink);
 
     if (l3s.size()) {
         /*
@@ -196,6 +218,14 @@ void Uplink::set(const std::string& uplink, uint16_t uplink_vlan,
     m_type = VLAN;
     m_iface = uplink;
     m_vlan = uplink_vlan;
+}
+
+void Uplink::insert_slave_ifaces(std::string name) {
+    this->slave_ifaces.insert(name);
+}
+
+void Uplink::add_slave_ifaces(std::unordered_set<std::string> slaves) {
+    this->slave_ifaces = slaves;
 }
 
 } // namespace VPP
