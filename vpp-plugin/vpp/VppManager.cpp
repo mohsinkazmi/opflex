@@ -594,7 +594,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
     /**
      * We are interested in getting interface stats from VPP
      */
-    itf.enable_stats(*this);
+    itf.enable_stats(*this, interface::stats_type_t::DETAILED);
 
     /*
      * Apply Security Groups
@@ -1291,8 +1291,14 @@ void VppManager::handleInterfaceStat(VOM::interface_cmds::stats_enable_cmd* e) {
             LOG(DEBUG) << "Interface Stat: " << sp->to_string()
                       << " stat rx_packets: " << data.rx_packets
                       << " stat rx_bytes: " << data.rx_bytes
+                      << " stat rx_unicast_packets: " << data.rx_unicast_packets
+                      << " stat rx_multicast_packets: " << data.rx_multicast_packets
+                      << " stat rx_broadcast_packets: " << data.rx_broadcast_packets
                       << " stat tx_packets: " << data.tx_packets
-                      << " stat tx_bytes: " << data.tx_bytes;
+                      << " stat tx_bytes: " << data.tx_bytes
+                      << " stat tx_unicast_packets: " << data.tx_unicast_packets
+                      << " stat tx_multicast_packets: " << data.tx_multicast_packets
+                      << " stat tx_broadcast_packets: " << data.tx_broadcast_packets;
 
             epMgr.getEndpointsByAccessIface(sp->name(), endpoints);
 
@@ -1301,6 +1307,12 @@ void VppManager::handleInterfaceStat(VOM::interface_cmds::stats_enable_cmd* e) {
             counters.rxPackets = data.rx_packets;
             counters.txBytes = data.tx_bytes;
             counters.rxBytes = data.rx_bytes;
+            counters.rxUnicast = data.rx_unicast_packets;
+            counters.txUnicast = data.tx_unicast_packets;
+            counters.rxBroadcast = data.rx_broadcast_packets;
+            counters.txBroadcast = data.tx_broadcast_packets;
+            counters.rxMulticast = data.rx_multicast_packets;
+            counters.txMulticast = data.tx_multicast_packets;
             // counters.txDrop = data.tx_dropped;
             // counters.rxDrop = data.rx_dropped;
 
@@ -1313,6 +1325,18 @@ void VppManager::handleInterfaceStat(VOM::interface_cmds::stats_enable_cmd* e) {
                     counters.txPackets = 0;
                 if (counters.rxPackets == std::numeric_limits<uint64_t>::max())
                     counters.rxPackets = 0;
+                if (counters.txBroadcast == std::numeric_limits<uint64_t>::max())
+                    counters.txBroadcast = 0;
+                if (counters.rxBroadcast == std::numeric_limits<uint64_t>::max())
+                    counters.rxBroadcast = 0;
+                if (counters.txMulticast == std::numeric_limits<uint64_t>::max())
+                    counters.txMulticast = 0;
+                if (counters.rxMulticast == std::numeric_limits<uint64_t>::max())
+                    counters.rxMulticast = 0;
+                if (counters.txUnicast == std::numeric_limits<uint64_t>::max())
+                    counters.txUnicast = 0;
+                if (counters.rxUnicast == std::numeric_limits<uint64_t>::max())
+                    counters.rxUnicast = 0;
                 if (counters.rxBytes == std::numeric_limits<uint64_t>::max())
                     counters.rxBytes = 0;
                 if (counters.txBytes == std::numeric_limits<uint64_t>::max())
