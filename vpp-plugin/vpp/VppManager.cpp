@@ -461,7 +461,8 @@ static string getEpBridgeInterface(const Endpoint& endPoint) {
 }
 
 static VOM::interface::type_t getIntfTypeFromName(string name) {
-    if (name.find("vhost") != string::npos)
+    if ((name.find("vhost") != string::npos) ||
+	(name.find("vhu") != string::npos))
         return VOM::interface::type_t::VHOST;
     else if (name.find("tap") != string::npos)
         return VOM::interface::type_t::TAP;
