@@ -51,7 +51,10 @@
 #include <vom/route.hpp>
 #include <vom/route_domain.hpp>
 #include <vom/gbp_endpoint.hpp>
+#include <vom/gbp_endpoint_group.hpp>
 #include <vom/gbp_contract.hpp>
+#include <vom/gbp_recirc.hpp>
+#include <vom/gbp_subnet.hpp>
 
 using std::string;
 using std::shared_ptr;
@@ -414,8 +417,9 @@ void VppManager::peerStatusUpdated(const std::string&, int,
 }
 
 bool VppManager::getGroupForwardingInfo(const URI& epgURI, uint32_t& vnid,
-                                        optional<URI>& rdURI, uint32_t& rdId,
-                                        uint32_t& rbdId, optional<URI>& bdURI,
+                                        optional<URI>& rdURI,
+                                        uint32_t& rdId,
+                                        optional<URI>& bdURI,
                                         uint32_t& bdId) {
     PolicyManager& polMgr = agent.getPolicyManager();
     optional<uint32_t> epgVnid = polMgr.getVnidForGroup(epgURI);
@@ -439,7 +443,6 @@ bool VppManager::getGroupForwardingInfo(const URI& epgURI, uint32_t& vnid,
     if (epgBd) {
         bdURI = epgBd.get()->getURI();
         bdId = getId(BridgeDomain::CLASS_ID, bdURI.get());
-        rbdId = getId(RoutingDomain::CLASS_ID, bdURI.get());
     }
     return true;
 }
@@ -462,7 +465,7 @@ static string getEpBridgeInterface(const Endpoint& endPoint) {
 
 static VOM::interface::type_t getIntfTypeFromName(string name) {
     if ((name.find("vhost") != string::npos) ||
-	(name.find("vhu") != string::npos))
+        (name.find("vhu") != string::npos))
         return VOM::interface::type_t::VHOST;
     else if (name.find("tap") != string::npos)
         return VOM::interface::type_t::TAP;
@@ -470,62 +473,34 @@ static VOM::interface::type_t getIntfTypeFromName(string name) {
     return VOM::interface::type_t::AFPACKET;
 }
 
-void VppManager::importEPAddress(const string& ep_uuid, const URI& ep_epgURI,
-                                 vector<address>& ipAddresses,
-                                 const VOM::interface& ep_itf,
-                                 const URI& rdURI) {
-    const string& rd_uuid = rdURI.toString();
+static std::vector<address>
+getEpIPs(const opflexagent::Endpoint& endPoint)
+{
+    /* check and parse the IP-addresses */
+    boost::system::error_code ec;
+    std::vector<address> ipAddresses;
 
-    optional<shared_ptr<RoutingDomain>> rd =
-        RoutingDomain::resolve(agent.getFramework(), rdURI);
+    const boost::optional<opflex::modb::MAC> mac = endPoint.getMAC();
 
-    if (!rd) {
-        return;
-    }
-
-    /*
-     * For each EPG (expect the EP's own) using this RD, import the EP's
-     * addresses
-     */
-    PolicyManager::uri_set_t epgURIs;
-    agent.getPolicyManager().getGroups(epgURIs);
-    for (const URI& epgURI : epgURIs) {
-        if (epgURI == ep_epgURI)
-            continue;
-
-        auto epgs_rd = agent.getPolicyManager().getRDForGroup(epgURI);
-
-        if (epgs_rd) {
-            if (epgs_rd.get()->getURI() == rdURI) {
-
-                for (auto& addr : ipAddresses) {
-                    /*
-                     * the usual reciepe for getting the group's network info
-                     */
-                    uint32_t epgVnid, rdId, rbdId, bdId;
-                    optional<URI> bdURI, rdURI;
-                    if (!getGroupForwardingInfo(epgURI, epgVnid, rdURI, rdId,
-                                                rbdId, bdURI, bdId)) {
-                        continue;
-                    }
-
-                    /*
-                     * create a host route for the EP in the route domain.
-                     * this is the route for the EP in the RDs of the other EPGs
-                     * so this is the 'normal' attached next-hop route, that
-                     * will
-                     * perform the MAC rewrite.
-                     */
-                    VOM::route_domain v_rd(rbdId);
-                    VOM::OM::write(ep_uuid, v_rd);
-
-                    VOM::route::ip_route host_route(v_rd, {addr},
-                                                    {addr, ep_itf});
-                    VOM::OM::write(ep_uuid, host_route);
-                }
-            }
+    for (const std::string& ipStr : endPoint.getIPs()) {
+        address addr =
+            address::from_string(ipStr, ec);
+        if (ec) {
+            LOG(opflexagent::WARNING) << "Invalid endpoint IP: " << ipStr << ": "
+                                      << ec.message();
+        } else {
+            ipAddresses.push_back(addr);
         }
     }
+
+    if (mac) {
+        address_v6 linkLocalIp(opflexagent::network::construct_link_local_ip_addr(mac.get()));
+        if (endPoint.getIPs().find(linkLocalIp.to_string()) ==
+            endPoint.getIPs().end())
+            ipAddresses.push_back(linkLocalIp);
+    }
+
+    return ipAddresses;
 }
 
 void VppManager::handleEndpointUpdate(const string& uuid) {
@@ -535,6 +510,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
      * that we don't touch here, gone.
      */
     VOM::OM::mark_n_sweep ms(uuid);
+    boost::system::error_code ec;
 
     if (stopping)
         return;
@@ -558,20 +534,29 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
     const std::string secGrpId = getSecGrpSetId(secGrps);
     int rv;
 
-    uint32_t epgVnid, rdId, rbdId, bdId;
+    uint32_t epgVnid, rdId, bdId;
     optional<URI> bdURI, rdURI;
-    if (!getGroupForwardingInfo(epgURI.get(), epgVnid, rdURI, rdId, rbdId,
+    if (!getGroupForwardingInfo(epgURI.get(), epgVnid,
+                                rdURI, rdId,
                                 bdURI, bdId)) {
         return;
     }
 
     /*
-     * the route-domain the endpoint is in. This is a per-brige-domain
-     * route-domain. per-bridge-domain implies per-EPG and hence all
-     * routes therein can have paths via the per-EPG uplink interface.
+     * the route-domain the endpoint is in.
      */
-    route_domain rd(rbdId);
-    VOM::OM::write(uuid, rd);
+    route_domain rd(rdId);
+    OM::write(uuid, rd);
+    bridge_domain bd(bdId, VOM::bridge_domain::learning_mode_t::OFF);
+    OM::write(uuid, bd);
+
+    /*
+     * VOM GBP Endpoint Group
+     */
+    shared_ptr<VOM::interface> encap_link =
+      m_uplink.mk_interface(epgURI.get().toString(), epgVnid);
+    gbp_endpoint_group gepg(epgVnid, *encap_link, rd, bd);
+    OM::write(uuid, gepg);
 
     /*
      * We want a veth interface - admin up
@@ -582,7 +567,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         return;
 
     VOM::interface itf(epItfName, getIntfTypeFromName(epItfName),
-                           VOM::interface::admin_state_t::UP, rd, uuid);
+                       VOM::interface::admin_state_t::UP, rd, uuid);
 
     VOM::OM::write(uuid, itf);
 
@@ -593,7 +578,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         return;
 
     /**
-     * We are interested in getting interface stats from VPP
+     * We are interested in getting detailed interface stats from VPP
      */
     itf.enable_stats(*this, interface::stats_type_t::DETAILED);
 
@@ -638,32 +623,14 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         VOM::OM::write(uuid, out_binding);
     }
 
-    uint8_t macAddr[6];
+    uint8_t macAddr[6] = {0};
     bool hasMac = endPoint.getMAC() != boost::none;
 
     if (hasMac)
         endPoint.getMAC().get().toUIntArray(macAddr);
 
     /* check and parse the IP-addresses */
-    boost::system::error_code ec;
-
-    vector<address> ipAddresses;
-    for (const string& ipStr : endPoint.getIPs()) {
-        address addr = address::from_string(ipStr, ec);
-        if (ec) {
-            LOG(WARNING) << "Invalid endpoint IP: " << ipStr << ": "
-                         << ec.message();
-        } else {
-            ipAddresses.push_back(addr);
-        }
-    }
-
-    if (hasMac) {
-        address_v6 linkLocalIp(network::construct_link_local_ip_addr(macAddr));
-        if (endPoint.getIPs().find(linkLocalIp.to_string()) ==
-            endPoint.getIPs().end())
-            ipAddresses.push_back(linkLocalIp);
-    }
+    vector<address> ipAddresses = getEpIPs(endPoint);
 
     VOM::ACL::l2_list::rules_t rules;
     if (itf.handle().value()) {
@@ -737,16 +704,18 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
     }
 
     /*
-     * we've already validated that this EP has an associated BD
+     * EP's interface is in the EPG's BD
      */
-    VOM::bridge_domain bd(bdId, VOM::bridge_domain::learning_mode_t::OFF);
-    VOM::OM::write(uuid, bd);
-
     VOM::l2_binding l2itf(itf, bd);
     VOM::OM::write(uuid, l2itf);
 
-    VOM::l2_emulation l2em(itf);
-    VOM::OM::write(uuid, l2em);
+    /*
+     * Create/get the BVI interface for the EPG
+     */
+    VOM::interface bvi("bvi-" + std::to_string(bd.id()),
+                       VOM::interface::type_t::BVI,
+                       VOM::interface::admin_state_t::UP, rd);
+    VOM::OM::write(uuid, bvi);
 
     if (hasMac) {
         /*
@@ -760,33 +729,38 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
          * ARP request for this end-point from other local end-points
          */
         for (const address& ipAddr : ipAddresses) {
+          /*
+           * ARP term entry so we respond to ARP reqeusts for the VM's IP.
+           */
             VOM::bridge_domain_arp_entry bae(bd, ipAddr, {macAddr});
             VOM::OM::write(uuid, bae);
 
             /*
-             * Add an L3 rewrite route to the end point. This will match
-             * packets
-             * from locally attached EPs in different subnets.
-             * This is the addition into the RD/BD that the VM belongs to
-             * so this is the DVR routes
+             * L2 FIB entry for intra EPG communication
              */
-            VOM::route::prefix_t ep_pfx(ipAddr);
-            VOM::route::ip_route ep_route(rd, ep_pfx,
-                                          {itf,
-                                           ep_pfx.l3_proto().to_nh_proto(),
-                                           route::path::flags_t::DVR});
+            VOM::bridge_domain_entry be(bd, {macAddr}, itf);
+            VOM::OM::write(uuid, be);
+
+            /*
+             * Add an L3 rewrite route to the end point. This will match
+             * packets from locally attached EPs in different subnets.
+             * We need these since there are no
+             * adj-fibs due to the fact the the BVI address has /32 and
+             *the subnet is not attached.
+             */
+            VOM::route::ip_route ep_route(rd, ipAddr, {ipAddr, bvi});
             VOM::OM::write(uuid, ep_route);
 
             /*
              * Add a neighbour entry
              */
-            VOM::neighbour ne(itf, ipAddr, {macAddr});
+            VOM::neighbour ne(bvi, ipAddr, {macAddr});
             VOM::OM::write(uuid, ne);
 
             /*
              * add a GDBP endpoint
              */
-            VOM::gbp_endpoint gbpe(itf, ipAddr, epgVnid);
+            VOM::gbp_endpoint gbpe(itf, ipAddr, macAddr, gepg);
             VOM::OM::write(uuid, gbpe);
         }
 
@@ -796,69 +770,110 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         if (m_vr &&
             (RoutingModeEnumT::CONST_ENABLED ==
              agent.getPolicyManager().getEffectiveRoutingMode(epgURI.get()))) {
-            for (const Endpoint::IPAddressMapping& ipm :
-                 endPoint.getIPAddressMappings()) {
-                /*
-                 * various validation checks to see whether the address mapping
-                 * returned really is an address mapping
-                 */
+          auto ipms = endPoint.getIPAddressMappings();
+
+          if (0 != ipms.size())
+            {
+              /*
+               * there are floating IPs, we need a recirulation interface
+               * for this EP's EPG. These are NAT outside and input feautre
+               * since packets are sent to these interface in order to have
+               * the out2in translation applied.
+               */
+                VOM::interface recirc_itf("recirc-" + std::to_string(epgVnid),
+                                          interface::type_t::LOOPBACK,
+                                          VOM::interface::admin_state_t::UP,
+                                          rd);
+              OM::write(uuid, recirc_itf);
+
+              l2_binding recirc_l2b(recirc_itf, bd);
+              OM::write(uuid, recirc_l2b);
+
+              nat_binding recirc_nb4(recirc_itf,
+                                     direction_t::INPUT,
+                                     l3_proto_t::IPV4,
+                                     nat_binding::zone_t::OUTSIDE);
+              OM::write(uuid, recirc_nb4);
+
+              nat_binding recirc_nb6(recirc_itf,
+                                     direction_t::INPUT,
+                                     l3_proto_t::IPV6,
+                                     nat_binding::zone_t::OUTSIDE);
+              OM::write(uuid, recirc_nb6);
+
+              gbp_recirc grecirc(recirc_itf,
+                                 gbp_recirc::type_t::INTERNAL,
+                                 gepg);
+              OM::write(uuid, grecirc);
+
+              for(const Endpoint::IPAddressMapping& ipm : ipms) {
                 if (!ipm.getMappedIP() || !ipm.getEgURI())
-                    continue;
+                  continue;
 
                 address mappedIp =
-                    address::from_string(ipm.getMappedIP().get(), ec);
-                if (ec)
-                    continue;
+                  address::from_string(ipm.getMappedIP().get(), ec);
+                if (ec) continue;
 
                 address floatingIp;
                 if (ipm.getFloatingIP()) {
-                    floatingIp =
-                        address::from_string(ipm.getFloatingIP().get(), ec);
-                    if (ec)
-                        continue;
-                    if (floatingIp.is_v4() != mappedIp.is_v4())
-                        continue;
+                  floatingIp =
+                    address::from_string(ipm.getFloatingIP().get(), ec);
+                  if (ec) continue;
+                  if (floatingIp.is_v4() != mappedIp.is_v4()) continue;
                 }
+
+                uint32_t fepgVnid, frdId, fbdId;
+                optional<URI> fbdURI, frdURI;
+                if (!getGroupForwardingInfo(ipm.getEgURI().get(),
+                                            fepgVnid,
+                                            frdURI, frdId,
+                                            fbdURI, fbdId))
+                  continue;
 
                 LOG(DEBUG) << "EP:" << uuid << " - add Floating IP"
-                           << floatingIp;
+                           << floatingIp << " => "
+                           << mappedIp;
 
-                if (!floatingIp.is_unspecified()) {
-                    /*
-                     * we only support v4 floating IPs at this time
-                     */
-                    if (!floatingIp.is_v4())
-                        continue;
+                /*
+                 * Route and Bridge Domains and the external EPG
+                 */
+                route_domain ext_rd(frdId);
+                OM::write(uuid, ext_rd);
+                bridge_domain ext_bd(fbdId, VOM::bridge_domain::learning_mode_t::OFF);
+                OM::write(uuid, ext_bd);
 
-                    /*
-                     * reply to ARP's for the floating IP
-                     */
-                    VOM::bridge_domain_arp_entry bae(bd, floatingIp, {macAddr});
-                    VOM::OM::write(uuid, bae);
+                /*
+                 * Route for the floating IP via the internal EPG's recirc
+                 */
+                VOM::route::prefix_t fp_pfx(floatingIp);
+                VOM::route::ip_route fp_route(ext_rd, fp_pfx,
+                                              {recirc_itf,
+                                               fp_pfx.l3_proto().to_nh_proto(),
+                                               route::path::flags_t::DVR});
+                VOM::OM::write(uuid, fp_route);
 
-                    /*
-                     * The VM's interface is now NAT inside.
-                     */
-                    VOM::nat_binding nb(itf, VOM::direction_t::INPUT,
-                                        VOM::l3_proto_t::IPV4,
-                                        VOM::nat_binding::zone_t::INSIDE);
-                    VOM::OM::write(uuid, nb);
+                /*
+                 * reply to ARP's for the floating IP
+                 */
+                VOM::bridge_domain_arp_entry fp_bae(bd, floatingIp, {macAddr});
+                VOM::OM::write(uuid, fp_bae);
 
-                    /*
-                     * lastly add the static mapping
-                     */
-                    VOM::nat_static ns(rd, mappedIp, floatingIp.to_v4());
-                    VOM::OM::write(uuid, ns);
-                }
+                /*
+                 * Bridge L2 packets addressed to the VM to the recirc
+                 * interface
+                 */
+                VOM::bridge_domain_entry fp_be(ext_bd, macAddr, recirc_itf);
+                VOM::OM::write(uuid, fp_be);
+
+                /*
+                 * NAT static mapping
+                 */
+                VOM::nat_static ns(rd, mappedIp, floatingIp);
+                VOM::OM::write(uuid, ns);
+              }
             }
         }
     }
-
-    /*
-     * import the EP's addresses into all the other VPP route-domains
-     */
-    if (rdURI)
-        importEPAddress(uuid, epgURI.get(), ipAddresses, itf, rdURI.get());
 
     /*
      * That's all folks ... destructor of mark_n_sweep calls the
@@ -867,11 +882,11 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
 }
 
 void VppManager::handleEndpointGroupDomainUpdate(const URI& epgURI) {
-
     const string& epg_uuid = epgURI.toString();
 
     /*
-     * Mark all of this EPG's state stale.
+     * Mark all of this EPG's state stale. this RAII pattern
+     * will sweep all state that is not updated.
      */
     VOM::OM::mark_n_sweep ms(epg_uuid);
 
@@ -884,26 +899,36 @@ void VppManager::handleEndpointGroupDomainUpdate(const URI& epgURI) {
         LOG(DEBUG) << "Deleting endpoint-group:" << epgURI;
         return;
     }
-    LOG(DEBUG) << "Updating endpoint-group:" << epgURI;
 
-    uint32_t epgVnid, rdId, rbdId, bdId;
+    uint32_t epgVnid, rdId, bdId;
     optional<URI> bdURI, rdURI;
-    if (!getGroupForwardingInfo(epgURI, epgVnid, rdURI, rdId, rbdId, bdURI,
-                                bdId)) {
+    if (!getGroupForwardingInfo(epgURI, epgVnid,
+                                rdURI, rdId,
+                                bdURI, bdId)) {
+        LOG(DEBUG) << "NOT Updating endpoint-group:" << epgURI;
         return;
     }
+    LOG(DEBUG) << "Updating endpoint-group:" << epgURI;
 
     /*
-     * Construct the BridgeDomain
+     * Construct the Bridge and routing Domains
      */
     VOM::bridge_domain bd(bdId, VOM::bridge_domain::learning_mode_t::OFF);
     VOM::OM::write(epg_uuid, bd);
+    VOM::route_domain rd(rdId);
+    VOM::OM::write(epg_uuid, rd);
 
     /*
      * Construct the encap-link
      */
     shared_ptr<VOM::interface> encap_link =
         m_uplink.mk_interface(epg_uuid, epgVnid);
+
+    /*
+     * GBP Endpoint Group
+     */
+    gbp_endpoint_group gepg(epgVnid, *encap_link, rd, bd);
+    OM::write(epg_uuid, gepg);
 
     /*
      * Add the encap-link to the BD
@@ -916,20 +941,6 @@ void VppManager::handleEndpointGroupDomainUpdate(const URI& epgURI) {
         l2_upl.set(l2_binding::l2_vtr_op_t::L2_VTR_POP_1, epgVnid);
     }
     VOM::OM::write(epg_uuid, l2_upl);
-
-    /*
-     * put the uplink in L2 emulation mode
-     */
-    VOM::l2_emulation l2em(*encap_link);
-    VOM::OM::write(epg_uuid, l2em);
-
-    /*
-     * Add the BVIs to the BD
-     */
-    VOM::route_domain rd(rbdId);
-    VOM::OM::write(epg_uuid, rd);
-
-    LOG(DEBUG) << "Updating BVIs";
 
     /*
      * Create a BVI interface for the EPG and add it to the bridge-domain
@@ -947,6 +958,23 @@ void VppManager::handleEndpointGroupDomainUpdate(const URI& epgURI) {
     }
     VOM::OM::write(epg_uuid, bvi);
 
+    /*
+     * The BVI is the NAT inside interface for the VMs
+     */
+    nat_binding nb6(bvi,
+                    direction_t::INPUT,
+                    l3_proto_t::IPV6,
+                    nat_binding::zone_t::INSIDE);
+    nat_binding nb4(bvi,
+                    direction_t::INPUT,
+                    l3_proto_t::IPV4,
+                    nat_binding::zone_t::INSIDE);
+    OM::write(epg_uuid, nb4);
+    OM::write(epg_uuid, nb6);
+
+    /*
+     * Add the BVIs to the BD
+     */
     VOM::l2_binding l2_bvi(bvi, bd);
     VOM::OM::write(epg_uuid, l2_bvi);
 
@@ -964,6 +992,10 @@ void VppManager::handleEndpointGroupDomainUpdate(const URI& epgURI) {
 
     for (shared_ptr<Subnet>& sn : subnets) {
         optional<address> routerIp = PolicyManager::getRouterIpForSubnet(*sn);
+
+        if (!sn->getPrefixLen() || !sn->getAddress())
+            continue;
+
         if (routerIp) {
             boost::asio::ip::address raddr = routerIp.get();
             /*
@@ -977,13 +1009,14 @@ void VppManager::handleEndpointGroupDomainUpdate(const URI& epgURI) {
                                              bvi.l2_address().to_mac());
             VOM::OM::write(epg_uuid, bae);
         }
-    }
-
-    /*
-     * import all of the RD's routes into the EPG's VRF
-     */
-    if (rdURI) {
-        handleRoutingDomainUpdate(rdURI.get());
+        /*
+         * The subnet is an internal 'GBP subnet' i.e. it is one where
+         * the egress the is the EPG's uplink. And the EPG is chosen
+         * based on the packet's source port
+         */
+        gbp_subnet gs(rd, {sn->getAddress().get(),
+                           sn->getPrefixLen().get()});
+        OM::write(epg_uuid, gs);
     }
 }
 
@@ -1024,11 +1057,22 @@ network::subnets_t VppManager::getRDSubnets(const URI& rdURI) {
     return intSubnets;
 }
 
-void VppManager::importRDsubnets(const URI& epgURI, const URI& rdURI,
-                                 shared_ptr<RoutingDomain> rd) {
+void VppManager::handleRoutingDomainUpdate(const URI& rdURI) {
+    OM::mark_n_sweep ms(rdURI.toString());
+
+    optional<shared_ptr<RoutingDomain>> op_opf_rd =
+        RoutingDomain::resolve(agent.getFramework(), rdURI);
+
+    if (!op_opf_rd) {
+        LOG(DEBUG) << "Cleaning up for RD: " << rdURI;
+        idGen.erase(getIdNamespace(RoutingDomain::CLASS_ID), rdURI.toString());
+        return;
+    }
+    shared_ptr<RoutingDomain> opf_rd = op_opf_rd.get();
+
     const string& rd_uuid = rdURI.toString();
 
-    LOG(DEBUG) << "Importing routing domain:" << rdURI << " in:" << epgURI;
+    LOG(DEBUG) << "Importing routing domain:" << rdURI;
 
     /*
      * get all the subnets that are internal to this route domain
@@ -1037,23 +1081,15 @@ void VppManager::importRDsubnets(const URI& epgURI, const URI& rdURI,
     boost::system::error_code ec;
 
     /*
-     * the usual reciepe for getting the group's network info
-     */
-    uint32_t epgVnid, rdId, rbdId, bdId;
-    optional<URI> bdURI, trdURI;
-    if (!getGroupForwardingInfo(epgURI, epgVnid, trdURI, rdId, rbdId, bdURI,
-                                bdId)) {
-        return;
-    }
-
-    /*
      * create (or at least own) VPP's route-domain object
      */
-    VOM::route_domain v_rd(rbdId);
-    VOM::OM::write(rd_uuid, v_rd);
+    uint32_t rdId = getId(RoutingDomain::CLASS_ID, rdURI);
+
+    VOM::route_domain rd(rdId);
+    VOM::OM::write(rd_uuid, rd);
 
     /*
-     * The EPG is using the RD that is being updated.
+     * For each internal Subnet
      */
     for (const network::subnet_t& sn : intSubnets) {
         /*
@@ -1064,31 +1100,22 @@ void VppManager::importRDsubnets(const URI& epgURI, const URI& rdURI,
         if (ec)
             continue;
 
-        LOG(DEBUG) << "Importing routing domain:" << rdURI << " in:" << epgURI
+        LOG(DEBUG) << "Importing routing domain:" << rdURI
                    << " subnet:" << addr;
-
-        /*
-         * the encap link will be used as the path for routes to
-         * the subnets
-         */
-        shared_ptr<VOM::interface> encap_link =
-            m_uplink.mk_interface(rd_uuid, epgVnid);
 
         /*
          * add a route for the subnet in VPP's route-domain via
          * the EPG's uplink, DVR styleee
          */
-        VOM::route::prefix_t subnet_pfx(addr, sn.second);
-        VOM::route::ip_route subnet_route(
-            v_rd, subnet_pfx.low(),
-            {*encap_link,
-             subnet_pfx.l3_proto().to_nh_proto(),
-             VOM::route::path::flags_t::DVR});
-        VOM::OM::write(rd_uuid, subnet_route);
+        gbp_subnet gs(rd, {addr, sn.second});
+        OM::write(rd_uuid, gs);
     }
 
+    /*
+     * for each external subnet
+     */
     vector<shared_ptr<L3ExternalDomain>> extDoms;
-    rd.get()->resolveGbpL3ExternalDomain(extDoms);
+    opf_rd.get()->resolveGbpL3ExternalDomain(extDoms);
     for (shared_ptr<L3ExternalDomain>& extDom : extDoms) {
         vector<shared_ptr<L3ExternalNetwork>> extNets;
         extDom->resolveGbpL3ExternalNetwork(extNets);
@@ -1099,103 +1126,100 @@ void VppManager::importRDsubnets(const URI& epgURI, const URI& rdURI,
             optional<shared_ptr<L3ExternalNetworkToNatEPGroupRSrc>> natRef =
                 net->resolveGbpL3ExternalNetworkToNatEPGroupRSrc();
             optional<uint32_t> natEpgVnid = boost::none;
+            optional<URI> natEpg = boost::none;
 
             if (natRef) {
-                optional<URI> natEpg = natRef.get()->getTargetURI();
+                natEpg = natRef.get()->getTargetURI();
                 if (natEpg)
                     natEpgVnid =
                         agent.getPolicyManager().getVnidForGroup(natEpg.get());
             }
 
-            for (auto extsub : extSubs) {
-                LOG(DEBUG) << "Importing routing domain:" << rdURI
-                           << " in:" << epgURI
-                           << " external:" << extDom->getName("e")
-                           << " external-net:" << net->getName("n")
-                           << " external-sub:" << extsub->getAddress("a");
-
-                if (!extsub->isAddressSet() || !extsub->isPrefixLenSet())
+            for (auto extSub : extSubs) {
+                if (!extSub->isAddressSet() || !extSub->isPrefixLenSet())
                     continue;
+
+                LOG(DEBUG) << "Importing routing domain:" << rdURI
+                           << " external:" << extDom->getName("n/a")
+                           << " external-net:" << net->getName("n/a")
+                           << " external-sub:" << extSub->getAddress("n/a")
+                           << "/" << extSub->getPrefixLen(99);
+
                 address addr =
-                    address::from_string(extsub->getAddress().get(), ec);
+                    address::from_string(extSub->getAddress().get(), ec);
                 if (ec)
                     continue;
 
-                /*
-                 * If there is associated NAT EPG then point the route
-                 * through the NAT EPG's uplink
-                 */
                 if (natEpgVnid) {
-                    if (addr.is_v4()) {
-                        shared_ptr<VOM::interface> encap_link =
-                            m_uplink.mk_interface(rd_uuid, natEpgVnid.get());
-
-                        VOM::route::prefix_t subnet_pfx(
-                            addr, extsub->getPrefixLen(0));
-                        VOM::route::ip_route subnet_route(
-                            v_rd, subnet_pfx.low(),
-                            {*encap_link,
-                             subnet_pfx.l3_proto().to_nh_proto(),
-                             VOM::route::path::flags_t::DVR});
-                        VOM::OM::write(rd_uuid, subnet_route);
-
-                        /*
-                         * configure the NAT EPG's uplink as NAT outside
-                         */
-                        VOM::nat_binding nb(*encap_link,
-                                            VOM::direction_t::OUTPUT,
-                                            VOM::l3_proto_t::IPV4,
-                                            VOM::nat_binding::zone_t::OUTSIDE);
-                        VOM::OM::write(rd_uuid, nb);
+                    /*
+                     * there's a NAT EPG for this subnet. create its RD, BD
+                     * and EPG.
+                     */
+                    uint32_t nat_epgVnid, nat_rdId, nat_bdId;
+                    optional<URI> nat_bdURI, nat_rdURI;
+                    if (!getGroupForwardingInfo(natEpg.get(), nat_epgVnid,
+                                                nat_rdURI, nat_rdId,
+                                                nat_bdURI,  nat_bdId)) {
+                        return;
                     }
+                    VOM::route_domain nat_rd(nat_rdId);
+                    VOM::OM::write(rd_uuid, nat_rd);
+                    VOM::bridge_domain nat_bd(nat_bdId);
+                    VOM::OM::write(rd_uuid, nat_bd);
+
+                    shared_ptr<VOM::interface> encap_link =
+                        m_uplink.mk_interface(rd_uuid, natEpgVnid.get());
+
+                    gbp_endpoint_group nat_epg(natEpgVnid.get(),
+                                               *encap_link,
+                                               nat_rd, nat_bd);
+                    OM::write(rd_uuid, nat_epg);
+
+                    /*
+                     * The external-subnet is a route via the NAT-EPG's recirc.
+                     * the recirc is a NAT outside interface to get NAT applied in-2out
+                     */
+
+                    /* setup the recirc interface */
+                    VOM::interface nat_recirc_itf("recirc-" + std::to_string(natEpgVnid.get()),
+                                                  interface::type_t::LOOPBACK,
+                                                  VOM::interface::admin_state_t::UP,
+                                                  nat_rd);
+                    OM::write(rd_uuid, nat_recirc_itf);
+
+                    l2_binding nat_recirc_l2b(nat_recirc_itf, nat_bd);
+                    OM::write(rd_uuid, nat_recirc_l2b);
+
+                    nat_binding nat_recirc_nb4(nat_recirc_itf,
+                                               direction_t::OUTPUT,
+                                               l3_proto_t::IPV4,
+                                               nat_binding::zone_t::OUTSIDE);
+                    OM::write(rd_uuid, nat_recirc_nb4);
+
+                    nat_binding nat_recirc_nb6(nat_recirc_itf,
+                                               direction_t::OUTPUT,
+                                               l3_proto_t::IPV6,
+                                               nat_binding::zone_t::OUTSIDE);
+                    OM::write(rd_uuid, nat_recirc_nb6);
+
+                    gbp_recirc nat_grecirc(nat_recirc_itf,
+                                           gbp_recirc::type_t::EXTERNAL,
+                                           nat_epg);
+                    OM::write(rd_uuid, nat_grecirc);
+
+                    /* add the route for the ext-subnet */
+                    gbp_subnet gs(rd,
+                                  {addr, extSub->getPrefixLen().get()},
+                                  nat_grecirc, nat_epg);
+                    OM::write(rd_uuid, gs);
+
                 } else {
                     /*
                      * through this EPG's uplink port
                      */
-                    shared_ptr<VOM::interface> encap_link =
-                        m_uplink.mk_interface(rd_uuid, epgVnid);
-
-                    VOM::route::prefix_t subnet_pfx(addr,
-                                                    extsub->getPrefixLen(0));
-                    VOM::route::ip_route subnet_route(
-                        v_rd, subnet_pfx.low(),
-                        {*encap_link,
-                          subnet_pfx.l3_proto().to_nh_proto(),
-                          VOM::route::path::flags_t::DVR});
-                    VOM::OM::write(rd_uuid, subnet_route);
+                    gbp_subnet gs(rd, {addr, extSub->getPrefixLen().get()});
+                    OM::write(rd_uuid, gs);
                 }
-            }
-        }
-    }
-}
-
-void VppManager::handleRoutingDomainUpdate(const URI& rdURI) {
-    OM::mark_n_sweep ms(rdURI.toString());
-
-    optional<shared_ptr<RoutingDomain>> rd =
-        RoutingDomain::resolve(agent.getFramework(), rdURI);
-
-    if (!rd) {
-        LOG(DEBUG) << "Cleaning up for RD: " << rdURI;
-        idGen.erase(getIdNamespace(RoutingDomain::CLASS_ID), rdURI.toString());
-        return;
-    }
-
-    /*
-     * For each EPG using this RD, import the subnets into the EPG's
-     * VRF.
-     *
-     * All attempts to navigate back from the RD to a set of BDs or EPGs
-     * fails miserably. So instead iterate through all EPGs
-     */
-    PolicyManager::uri_set_t epgURIs;
-    agent.getPolicyManager().getGroups(epgURIs);
-    for (const URI& epgURI : epgURIs) {
-        auto epgs_rd = agent.getPolicyManager().getRDForGroup(epgURI);
-
-        if (epgs_rd) {
-            if (epgs_rd.get()->getURI() == rdURI) {
-                importRDsubnets(epgURI, rdURI, rd.get());
             }
         }
     }
@@ -1382,6 +1406,34 @@ uint32_t VppManager::getExtNetVnid(const opflex::modb::URI& uri) {
     return (getId(L3ExternalNetwork::CLASS_ID, uri) | (1 << 31));
 }
 
+std::shared_ptr<gbp_endpoint_group>
+VppManager::getEndPointGroup (const std::string& uuid,
+                              const URI &epgURI)
+{
+    uint32_t epgVnid, rdId, bdId;
+    optional<URI> bdURI, rdURI;
+    if (!getGroupForwardingInfo(epgURI, epgVnid,
+                                rdURI, rdId,
+                                bdURI, bdId)) {
+        return {};
+    }
+
+    route_domain rd(rdId);
+    OM::write(uuid, rd);
+    bridge_domain bd(bdId, VOM::bridge_domain::learning_mode_t::OFF);
+    OM::write(uuid, bd);
+
+    /*
+     * VOM GBP Endpoint Group
+     */
+    shared_ptr<VOM::interface> encap_link =
+        m_uplink.mk_interface(uuid, epgVnid);
+    gbp_endpoint_group gepg(epgVnid, *encap_link, rd, bd);
+    OM::write(uuid, gepg);
+
+    return gepg.singular();
+}
+
 void VppManager::handleContractUpdate(const opflex::modb::URI& contractURI) {
     LOG(DEBUG) << "Updating contract " << contractURI;
     if (stopping)
@@ -1417,43 +1469,17 @@ void VppManager::handleContractUpdate(const opflex::modb::URI& contractURI) {
     for (const uint32_t& pvnid : provIds) {
         for (const uint32_t& cvnid : consIds) {
             if (pvnid == cvnid)
+                /* intra group is allowed by default */
                 continue;
 
-            /* bool allowBidirectional = */
-            /*     provIds.find(cvnid) == provIds.end() || */
-            /*     consIds.find(pvnid) == consIds.end(); */
-
-            /* for (const shared_ptr<PolicyRule>& pc : rules) { */
-            /*     uint8_t dir = pc->getDirection(); */
-            /*     const shared_ptr<L24Classifier>& cls = pc->getL24Classifier(); */
-            /*     uint32_t priority = pc->getPriority(); */
-            /*     uint16_t etherType = */
-            /*         cls->getEtherT(EtherTypeEnumT::CONST_UNSPECIFIED); */
-            /*         VOM::ACL::action_t act = VOM::ACL::action_t::from_bool( */
-            /*             pc->getAllow(), */
-            /*             cls->getConnectionTracking(ConnTrackEnumT::CONST_NORMAL)); */
-
-            /*     if (dir == DirectionEnumT::CONST_BIDIRECTIONAL && */
-            /*         !allowBidirectional) { */
-            /*         dir = DirectionEnumT::CONST_IN; */
-            /*     } */
-            /*     if (dir == DirectionEnumT::CONST_IN || */
-            /*         dir == DirectionEnumT::CONST_BIDIRECTIONAL) { */
-            /*         // code here */
-            /*     } */
-            /*     if (dir == DirectionEnumT::CONST_OUT || */
-            /*         dir == DirectionEnumT::CONST_BIDIRECTIONAL) { */
-	    /*         // code here */
-            /*     } */
-            /* } */
+            LOG(DEBUG) << "Contract prov:" << pvnid
+                       << " cons:" << cvnid;
 
             /*
              * At this point we are implementing only the neutron virtual
              * router concept. So we use a permit any-any rule and rely
              * only on the GDBP EPG restructions
              */
-            route::prefix_t pfx = route::prefix_t::ZERO;
-
             VOM::ACL::l3_rule rule(0,
                                    VOM::ACL::action_t::PERMIT,
                                    route::prefix_t::ZERO,
@@ -1466,7 +1492,6 @@ void VppManager::handleContractUpdate(const opflex::modb::URI& contractURI) {
             VOM::OM::write(uuid, gbpc);
         }
     }
-
 }
 
 void VppManager::initPlatformConfig() {
@@ -1750,7 +1775,7 @@ void VppManager::handleSecGrpSetUpdate(const uri_set_t& secGrps) {
 
     if (in_rules.empty() && out_rules.empty() && ethertype_rules.empty()) {
         LOG(WARNING) << "in and out rules are empty";
-	return;
+        return;
     }
 
     EndpointManager& epMgr = agent.getEndpointManager();

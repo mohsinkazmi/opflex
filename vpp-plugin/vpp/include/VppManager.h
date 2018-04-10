@@ -41,6 +41,7 @@
  */
 namespace VOM {
 class bridge_domain;
+class gbp_endpoint_group;
 };
 
 namespace opflexagent {
@@ -227,7 +228,7 @@ private:
 
     bool getGroupForwardingInfo(const opflex::modb::URI& egUri, uint32_t& vnid,
                                 boost::optional<opflex::modb::URI>& rdURI,
-                                uint32_t& rdId, uint32_t& rbdId,
+                                uint32_t& rdId,
                                 boost::optional<opflex::modb::URI>& bdURI,
                                 uint32_t& bdId);
     void updateGroupSubnets(const opflex::modb::URI& egUri, uint32_t bdId,
@@ -288,14 +289,8 @@ private:
     /**
      * Import the subnets from an RD into the VRF of a EPG
      */
-    void importRDsubnets(const opflex::modb::URI& epgURI,
-                         const opflex::modb::URI& rdURI,
-                         std::shared_ptr<modelgbp::gbp::RoutingDomain> rd);
-    void importEPAddress(const std::string& ep_uuid,
-                         const opflex::modb::URI& ep_epgURI,
-                         std::vector<boost::asio::ip::address>& ipAddresses,
-                         const VOM::interface& ep_itf,
-                         const opflex::modb::URI& rdURI);
+    std::shared_ptr<gbp_endpoint_group> getEndPointGroup(const std::string& uuid,
+                                                         const opflex::modb::URI &egpURI);
 
     /**
      * Get the subnet internal to a route domain
