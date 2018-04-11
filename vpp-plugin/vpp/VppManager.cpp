@@ -40,7 +40,7 @@
 #include <vom/bridge_domain_entry.hpp>
 #include <vom/dhcp_config.hpp>
 #include <vom/interface.hpp>
-#include <vom/interface.hpp>
+#include <vom/sub_interface.hpp>
 #include <vom/l2_binding.hpp>
 #include <vom/l2_emulation.hpp>
 #include <vom/l3_binding.hpp>
@@ -565,22 +565,33 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
 
     if (0 == epItfName.length())
         return;
+    std::shared_ptr<VOM::interface> itf;
+    uint16_t vlan_id_t;
+    if (endPoint.getAccessIfaceVlan()) {
+      VOM::interface intf(epItfName, getIntfTypeFromName(epItfName),
+                           VOM::interface::admin_state_t::UP, uuid);
+      VOM::OM::write(uuid, intf);
 
-    VOM::interface itf(epItfName, getIntfTypeFromName(epItfName),
-                       VOM::interface::admin_state_t::UP, rd, uuid);
-
-    VOM::OM::write(uuid, itf);
+      vlan_id_t = endPoint.getAccessIfaceVlan().get();
+      itf = VOM::sub_interface(intf, interface::admin_state_t::UP, rd, vlan_id_t)
+                              .singular();
+      VOM::OM::write(uuid, *itf);
+    } else {
+      itf = VOM::interface(epItfName, getIntfTypeFromName(epItfName),
+                           VOM::interface::admin_state_t::UP, rd, uuid).singular();
+      VOM::OM::write(uuid, *itf);
+    }
 
     /*
      * If the interface is not created then we can do no more
      */
-    if (handle_t::INVALID == itf.handle())
+    if (handle_t::INVALID == itf->handle())
         return;
 
     /**
      * We are interested in getting detailed interface stats from VPP
      */
-    itf.enable_stats(*this, interface::stats_type_t::DETAILED);
+    itf->enable_stats(*this, interface::stats_type_t::DETAILED);
 
     /*
      * Apply Security Groups
@@ -605,21 +616,21 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
                          ethertype_rules);
 
     if (!ethertype_rules.empty()) {
-        VOM::ACL::acl_ethertype a_e(itf, ethertype_rules);
+        VOM::ACL::acl_ethertype a_e(*itf, ethertype_rules);
         VOM::OM::write(uuid, a_e);
     }
     if (!in_rules.empty()) {
         VOM::ACL::l3_list in_acl(secGrpId + "in", in_rules);
         VOM::OM::write(uuid, in_acl);
 
-        VOM::ACL::l3_binding in_binding(direction_t::INPUT, itf, in_acl);
+        VOM::ACL::l3_binding in_binding(direction_t::INPUT, *itf, in_acl);
         VOM::OM::write(uuid, in_binding);
     }
     if (!out_rules.empty()) {
         VOM::ACL::l3_list out_acl(secGrpId + "out", out_rules);
         VOM::OM::write(uuid, out_acl);
 
-        VOM::ACL::l3_binding out_binding(direction_t::OUTPUT, itf, out_acl);
+        VOM::ACL::l3_binding out_binding(direction_t::OUTPUT, *itf, out_acl);
         VOM::OM::write(uuid, out_binding);
     }
 
@@ -633,7 +644,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
     vector<address> ipAddresses = getEpIPs(endPoint);
 
     VOM::ACL::l2_list::rules_t rules;
-    if (itf.handle().value()) {
+    if (itf->handle().value()) {
         if (endPoint.isPromiscuousMode()) {
             VOM::ACL::l2_rule rulev6(50, VOM::ACL::action_t::PERMIT,
                                      VOM::route::prefix_t::ZEROv6, macAddr,
@@ -699,14 +710,18 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         VOM::ACL::l2_list acl(uuid, rules);
         VOM::OM::write(uuid, acl);
 
-        VOM::ACL::l2_binding binding(VOM::direction_t::INPUT, itf, acl);
+        VOM::ACL::l2_binding binding(VOM::direction_t::INPUT, *itf, acl);
         VOM::OM::write(uuid, binding);
     }
 
     /*
      * EP's interface is in the EPG's BD
      */
-    VOM::l2_binding l2itf(itf, bd);
+    VOM::l2_binding l2itf(*itf, bd);
+    if (endPoint.getAccessIfaceVlan()) {
+        l2itf.set(l2_binding::l2_vtr_op_t::L2_VTR_POP_1, vlan_id_t);
+    }
+
     VOM::OM::write(uuid, l2itf);
 
     /*
@@ -721,7 +736,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
         /*
          * An entry in the BD's L2 FIB to forward traffic to the end-point
          */
-        VOM::bridge_domain_entry be(bd, {macAddr}, itf);
+        VOM::bridge_domain_entry be(bd, {macAddr}, *itf);
         VOM::OM::write(uuid, be);
 
         /*
@@ -738,7 +753,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
             /*
              * L2 FIB entry for intra EPG communication
              */
-            VOM::bridge_domain_entry be(bd, {macAddr}, itf);
+            VOM::bridge_domain_entry be(bd, {macAddr}, *itf);
             VOM::OM::write(uuid, be);
 
             /*
@@ -760,7 +775,7 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
             /*
              * add a GDBP endpoint
              */
-            VOM::gbp_endpoint gbpe(itf, ipAddr, macAddr, gepg);
+            VOM::gbp_endpoint gbpe(*itf, ipAddr, macAddr, gepg);
             VOM::OM::write(uuid, gbpe);
         }
 
