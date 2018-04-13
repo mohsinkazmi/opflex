@@ -1014,8 +1014,9 @@ void VppManager::handleEndpointGroupDomainUpdate(const URI& epgURI) {
          * the egress the is the EPG's uplink. And the EPG is chosen
          * based on the packet's source port
          */
-        gbp_subnet gs(rd, {sn->getAddress().get(),
-                           sn->getPrefixLen().get()});
+        route::prefix_t pfx(sn->getAddress().get(),
+                            sn->getPrefixLen().get());
+        gbp_subnet gs(rd, pfx.low());
         OM::write(epg_uuid, gs);
     }
 }
