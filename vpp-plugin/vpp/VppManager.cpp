@@ -856,6 +856,10 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
                 OM::write(uuid, ext_rd);
                 bridge_domain ext_bd(fbdId, VOM::bridge_domain::learning_mode_t::OFF);
                 OM::write(uuid, ext_bd);
+                VOM::interface ext_bvi("bvi-" + std::to_string(fbdId),
+                                       VOM::interface::type_t::BVI,
+                                       VOM::interface::admin_state_t::UP, ext_rd);
+                VOM::OM::write(uuid, ext_bvi);
 
                 /*
                  * Route for the floating IP via the internal EPG's recirc
@@ -867,10 +871,13 @@ void VppManager::handleEndpointUpdate(const string& uuid) {
                                                route::path::flags_t::DVR});
                 VOM::OM::write(uuid, fp_route);
 
+                VOM::neighbour fp_ne(ext_bvi, floatingIp, {macAddr});
+                VOM::OM::write(uuid, fp_ne);
+
                 /*
                  * reply to ARP's for the floating IP
                  */
-                VOM::bridge_domain_arp_entry fp_bae(bd, floatingIp, {macAddr});
+                VOM::bridge_domain_arp_entry fp_bae(ext_bd, floatingIp, {macAddr});
                 VOM::OM::write(uuid, fp_bae);
 
                 /*
@@ -1117,7 +1124,8 @@ void VppManager::handleRoutingDomainUpdate(const URI& rdURI) {
             continue;
 
         LOG(DEBUG) << "Importing routing domain:" << rdURI
-                   << " subnet:" << addr;
+                   << " subnet:" << addr
+                   << "/" << std::to_string(sn.second);
 
         /*
          * add a route for the subnet in VPP's route-domain via
@@ -1159,7 +1167,9 @@ void VppManager::handleRoutingDomainUpdate(const URI& rdURI) {
                            << " external:" << extDom->getName("n/a")
                            << " external-net:" << net->getName("n/a")
                            << " external-sub:" << extSub->getAddress("n/a")
-                           << "/" << extSub->getPrefixLen(99);
+                           << "/" << std::to_string(extSub->getPrefixLen(99))
+                           << " nat-epg:" << natEpg
+                           << " nat-epg-id:" << natEpgVnid;
 
                 address addr =
                     address::from_string(extSub->getAddress().get(), ec);
@@ -1228,7 +1238,6 @@ void VppManager::handleRoutingDomainUpdate(const URI& rdURI) {
                                   {addr, extSub->getPrefixLen().get()},
                                   nat_grecirc, nat_epg);
                     OM::write(rd_uuid, gs);
-
                 } else {
                     /*
                      * through this EPG's uplink port

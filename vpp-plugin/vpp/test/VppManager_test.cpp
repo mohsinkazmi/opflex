@@ -302,7 +302,6 @@ public:
 
         shared_ptr<modelgbp::policy::Space> common;
         shared_ptr<FloodDomain> fd_ext;
-        shared_ptr<RoutingDomain> rd_ext;
         shared_ptr<BridgeDomain> bd_ext;
         shared_ptr<Subnets> subnets_ext;
         shared_ptr<L3ExternalDomain> l3ext;
@@ -393,6 +392,7 @@ public:
     std::shared_ptr<Endpoint> ep5;
     std::shared_ptr<modelgbp::gbp::EpGroup> epg5, epg_nat;
     std::shared_ptr<modelgbp::gbp::L3ExternalNetwork> l3ext_net;
+    std::shared_ptr<modelgbp::gbp::RoutingDomain> rd_ext;
 
     mac_address_t vMac;
     PolicyManager& policyMgr;
@@ -835,88 +835,150 @@ BOOST_FIXTURE_TEST_CASE(endpoint_nat_add_del, VppManagerFixture) {
     assignEpg0ToFd0();
 
     vppManager.egDomainUpdated(epg0->getURI());
+    vppManager.egDomainUpdated(epg1->getURI());
     vppManager.egDomainUpdated(epg_nat->getURI());
     vppManager.domainUpdated(modelgbp::gbp::RoutingDomain::CLASS_ID,
                              rd0->getURI());
+    vppManager.domainUpdated(modelgbp::gbp::RoutingDomain::CLASS_ID,
+                             rd_ext->getURI());
     vppManager.endpointUpdated(ep0->getUUID());
-
-                inspector.handle_input("all", std::cout);
+    vppManager.endpointUpdated(ep2->getUUID());
 
     /*
-     * some of the state expected for EPG0 and EPG1
+     * Global state
      */
     interface v_phy("opflex-itf", interface::type_t::AFPACKET,
                     interface::admin_state_t::UP);
+    route_domain v_rd(100);
+    WAIT_FOR_MATCH(v_rd);
+    route_domain v_rd_nat(101);
+    WAIT_FOR_MATCH(v_rd_nat);
+    mac_address_t v_mac_ep0("00:00:00:00:80:00");
 
-    route_domain v_rd_epg0(101);
-    WAIT_FOR_MATCH(v_rd_epg0);
+    address a5_5_5_5 = address::from_string("5.5.5.5");
+
+    /*
+     * some of the state expected for EPG0, EPG1 and EPG_NAT
+     */
     sub_interface v_upl_epg0(v_phy, interface::admin_state_t::UP, 0xA0A);
     WAIT_FOR_MATCH(v_upl_epg0);
-    route_domain v_rd_epg1(102);
-    WAIT_FOR_MATCH(v_rd_epg1);
+    bridge_domain v_bd_epg0(100, bridge_domain::learning_mode_t::OFF);
+    WAIT_FOR_MATCH(v_bd_epg0);
+    interface* v_bvi_epg0 =
+        new interface("bvi-100", interface::type_t::BVI,
+                      interface::admin_state_t::UP, v_rd);
+    v_bvi_epg0->set(vMac);
+    WAIT_FOR_MATCH(*v_bvi_epg0);
+    gbp_endpoint_group *v_epg0 =
+        new gbp_endpoint_group(0xA0A, v_upl_epg0, v_rd, v_bd_epg0);
+    WAIT_FOR_MATCH(*v_epg0);
+
     sub_interface v_upl_epg1(v_phy, interface::admin_state_t::UP, 0xA0B);
     WAIT_FOR_MATCH(v_upl_epg1);
+    bridge_domain v_bd_epg1(101, bridge_domain::learning_mode_t::OFF);
+    WAIT_FOR_MATCH(v_bd_epg1);
+    interface* v_bvi_epg1 =
+        new interface("bvi-101", interface::type_t::BVI,
+                      interface::admin_state_t::UP, v_rd);
+    v_bvi_epg1->set(vMac);
+    WAIT_FOR_MATCH(*v_bvi_epg1);
+    gbp_endpoint_group *v_epg1 =
+        new gbp_endpoint_group(0xA0B, v_upl_epg1, v_rd, v_bd_epg1);
+    WAIT_FOR_MATCH(*v_epg1);
+
+    bridge_domain v_bd_epg_nat(102, bridge_domain::learning_mode_t::OFF);
+    WAIT_FOR_MATCH(v_bd_epg_nat);
+    sub_interface v_upl_epg_nat(v_phy, interface::admin_state_t::UP, 0x424);
+    WAIT_FOR_MATCH(v_upl_epg_nat);
+    gbp_endpoint_group *v_epg_nat =
+        new gbp_endpoint_group(0x424, v_upl_epg_nat, v_rd_nat, v_bd_epg_nat);
+    WAIT_FOR_MATCH(*v_epg_nat);
+    interface* v_bvi_epg_nat =
+        new interface("bvi-102",
+                      interface::type_t::BVI,
+                      interface::admin_state_t::UP,
+                      v_rd_nat);
+    v_bvi_epg_nat->set(vMac);
+    WAIT_FOR_MATCH(*v_bvi_epg_nat);
 
     /*
      * The existence of the floating IPs mean there is a static
-     * mapping and a NAT inside binding on the VM's port
+     * mapping and a NAT inside binding on the EPG's BVI
      */
     interface* v_itf_ep0 =
         new interface("port80", interface::type_t::AFPACKET,
-                      interface::admin_state_t::UP, v_rd_epg0);
+                      interface::admin_state_t::UP, v_rd);
     WAIT_FOR_MATCH(*v_itf_ep0);
 
-    WAIT_FOR_MATCH(VOM::nat_binding(*v_itf_ep0, VOM::direction_t::INPUT,
-                                    VOM::l3_proto_t::IPV4,
-                                    VOM::nat_binding::zone_t::INSIDE));
-    WAIT_FOR_MATCH(VOM::nat_static(v_rd_epg0,
-                                   address::from_string("10.20.44.2"),
-                                   address::from_string("5.5.5.5").to_v4()));
+    WAIT_FOR_MATCH(nat_binding(*v_bvi_epg0,
+                               direction_t::INPUT,
+                               l3_proto_t::IPV4,
+                               nat_binding::zone_t::INSIDE));
+    WAIT_FOR_MATCH(nat_binding(*v_bvi_epg0,
+                               direction_t::INPUT,
+                               l3_proto_t::IPV6,
+                               nat_binding::zone_t::INSIDE));
+    WAIT_FOR_MATCH(nat_binding(*v_bvi_epg1,
+                               direction_t::INPUT,
+                               l3_proto_t::IPV4,
+                               nat_binding::zone_t::INSIDE));
+    WAIT_FOR_MATCH(nat_binding(*v_bvi_epg1,
+                               direction_t::INPUT,
+                               l3_proto_t::IPV6,
+                               nat_binding::zone_t::INSIDE));
+    interface v_recirc_itf("recirc-" + std::to_string(0xA0A),
+                           interface::type_t::LOOPBACK,
+                           interface::admin_state_t::UP,
+                           v_rd);
+    WAIT_FOR_MATCH(v_recirc_itf);
 
+    l2_binding v_recirc_l2b(v_recirc_itf, v_bd_epg0);
+    WAIT_FOR_MATCH(v_recirc_l2b);
+
+    nat_binding v_recirc_nb4(v_recirc_itf,
+                             direction_t::INPUT,
+                             l3_proto_t::IPV4,
+                             nat_binding::zone_t::OUTSIDE);
+    WAIT_FOR_MATCH(v_recirc_nb4);
+
+    nat_binding v_recirc_nb6(v_recirc_itf,
+                             direction_t::INPUT,
+                             l3_proto_t::IPV6,
+                             nat_binding::zone_t::OUTSIDE);
+    WAIT_FOR_MATCH(v_recirc_nb6);
+
+    gbp_recirc v_grecirc(v_recirc_itf,
+                         gbp_recirc::type_t::INTERNAL,
+                         *v_epg0);
+    WAIT_FOR_MATCH(v_grecirc);
     /*
-     * state expected for the NAT EPG
+     * floating IP state in the NAT BD/RD
      */
-    bridge_domain v_bd_epg_nat(102, bridge_domain::learning_mode_t::OFF);
-    WAIT_FOR_MATCH(v_bd_epg_nat);
-
-    route_domain v_rd_epg_nat(104);
-    WAIT_FOR_MATCH(v_rd_epg_nat);
-
-    sub_interface v_upl_epg_nat(v_phy, interface::admin_state_t::UP, 0x424);
-    WAIT_FOR_MATCH(v_upl_epg_nat);
-    WAIT_FOR_MATCH(l2_binding(v_upl_epg_nat, v_bd_epg_nat));
-    WAIT_FOR_MATCH(l2_emulation(v_upl_epg_nat));
-
-    /*
-     * At this point we have defined only the external subnet,
-     * so it should be reachable in each of the EPG's RDs,
-     * via their respective uplinks
-     */
-    WAIT_FOR_MATCH(route::ip_route(v_rd_epg0,
-                                   {address::from_string("5.5.0.0"), 16},
-                                   {v_upl_epg0,
+    WAIT_FOR_MATCH(nat_static(v_rd,
+                              address::from_string("10.20.44.2"),
+                              a5_5_5_5));
+    WAIT_FOR_MATCH(bridge_domain_arp_entry(v_bd_epg_nat,
+                                           a5_5_5_5,
+                                           v_mac_ep0));
+    WAIT_FOR_MATCH(bridge_domain_entry(v_bd_epg_nat,
+                                       v_mac_ep0,
+                                       v_recirc_itf));
+    WAIT_FOR_MATCH(neighbour(*v_bvi_epg_nat,
+                             a5_5_5_5,
+                             v_mac_ep0));
+    /* in the NAT RD the floating IP routes via the EPG's recirc */
+    WAIT_FOR_MATCH(route::ip_route(v_rd_nat,
+                                   a5_5_5_5,
+                                   {v_recirc_itf,
                                     nh_proto_t::IPV4,
                                     route::path::flags_t::DVR}));
-    WAIT_FOR_MATCH(route::ip_route(v_rd_epg1,
-                                   {address::from_string("5.5.0.0"), 16},
-                                   {v_upl_epg1,
-                                    nh_proto_t::IPV4,
-                                    route::path::flags_t::DVR}));
 
     /*
-     * the NAT epg does not have the ext subnet, but does have it's FD subnet
+     * At this point the external subnet is not via NAT so it's an
+     * GBP internal subnet via the uplink
      */
-    BOOST_CHECK(!is_present(
-        route::ip_route(v_rd_epg_nat,
-                        {address::from_string("5.5.0.0"), 16},
-                        {v_upl_epg_nat,
-                         nh_proto_t::IPV4,
-                         route::path::flags_t::DVR})));
-    WAIT_FOR_MATCH(route::ip_route(v_rd_epg_nat,
-                                   {address::from_string("5.5.5.0"), 24},
-                                   {v_upl_epg_nat,
-                                    nh_proto_t::IPV4,
-                                    route::path::flags_t::DVR}));
+    WAIT_FOR_MATCH(gbp_subnet(v_rd, {address::from_string("5.5.0.0"), 16}));
+    WAIT_FOR_MATCH(gbp_subnet(v_rd_nat, {address::from_string("5.5.5.0"), 24}));
 
     /*
      * modify the external subnet so that it is now NAT'd
@@ -927,19 +989,69 @@ BOOST_FIXTURE_TEST_CASE(endpoint_nat_add_del, VppManagerFixture) {
             epg_nat->getURI());
         mutator.commit();
 
-        WAIT_FOR(policyMgr.getVnidForGroup(epg_nat->getURI()).get_value_or(0) ==
-                     0x424,
-                 500);
+        WAIT_FOR(policyMgr.getVnidForGroup(epg_nat->getURI()).get_value_or(0) == 0x424, 500);
     }
     vppManager.domainUpdated(modelgbp::gbp::RoutingDomain::CLASS_ID,
                              rd0->getURI());
 
     /*
-     * NAT EPG's uplink should be nat-outside
+     * A recirc interface into the NAT EPG
      */
-    WAIT_FOR_MATCH(VOM::nat_binding(v_upl_epg_nat, VOM::direction_t::OUTPUT,
-                                    VOM::l3_proto_t::IPV4,
-                                    VOM::nat_binding::zone_t::OUTSIDE));
+    interface v_nat_recirc_itf("recirc-" + std::to_string(0x424),
+                               interface::type_t::LOOPBACK,
+                               interface::admin_state_t::UP,
+                               v_rd_nat);
+    WAIT_FOR_MATCH(v_nat_recirc_itf);
+
+    l2_binding v_nat_recirc_l2b(v_nat_recirc_itf, v_bd_epg_nat);
+    WAIT_FOR_MATCH(v_nat_recirc_l2b);
+
+    nat_binding v_nat_recirc_nb4(v_nat_recirc_itf,
+                                 direction_t::OUTPUT,
+                                 l3_proto_t::IPV4,
+                                 nat_binding::zone_t::OUTSIDE);
+    WAIT_FOR_MATCH(v_nat_recirc_nb4);
+
+    nat_binding v_nat_recirc_nb6(v_nat_recirc_itf,
+                                 direction_t::OUTPUT,
+                                 l3_proto_t::IPV6,
+                                 nat_binding::zone_t::OUTSIDE);
+    WAIT_FOR_MATCH(v_nat_recirc_nb6);
+
+    gbp_recirc v_nat_grecirc(v_nat_recirc_itf,
+                             gbp_recirc::type_t::EXTERNAL,
+                             *v_epg_nat);
+    WAIT_FOR_MATCH(v_nat_grecirc);
+
+    /*
+     * with the RD the route becomes external via the recirc
+     */
+    WAIT_FOR_MATCH(gbp_subnet(v_rd,
+                              {address::from_string("5.5.0.0"), 16},
+                              v_nat_grecirc,
+                              *v_epg_nat));
+    WAIT_FOR_MATCH(gbp_subnet(v_rd_nat,
+                              {address::from_string("5.5.5.0"), 24}));
+
+    /*
+     * modify the external subnet so that it is no longer NAT'd
+     */
+    {
+        opflex::modb::Mutator mutator(framework, policyOwner);
+        l3ext_net->addGbpL3ExternalNetworkToNatEPGroupRSrc()->unsetTarget();
+        mutator.commit();
+
+        WAIT_FOR(policyMgr.getVnidForGroup(epg_nat->getURI()).get_value_or(0) == 0x424, 500);
+    }
+    vppManager.domainUpdated(modelgbp::gbp::RoutingDomain::CLASS_ID,
+                             rd0->getURI());
+
+    /*
+     * subnet goes back to internal and the recircs are gone.
+     */
+    WAIT_FOR_MATCH(gbp_subnet(v_rd, {address::from_string("5.5.0.0"), 16}));
+    WAIT_FOR_MATCH(gbp_subnet(v_rd_nat, {address::from_string("5.5.5.0"), 24}));
+    WAIT_FOR_NOT_PRESENT(v_nat_grecirc);
 
     /*
      * withdraw the Floating IP
@@ -948,13 +1060,9 @@ BOOST_FIXTURE_TEST_CASE(endpoint_nat_add_del, VppManagerFixture) {
     epSrc.updateEndpoint(*ep0);
     vppManager.endpointUpdated(ep0->getUUID());
 
-    WAIT_FOR_NOT_PRESENT(
-        VOM::nat_static(v_rd_epg0, address::from_string("10.20.44.2"),
-                        address::from_string("5.5.5.5").to_v4()));
-    WAIT_FOR_NOT_PRESENT(VOM::nat_binding(*v_itf_ep0, VOM::direction_t::INPUT,
-                                          VOM::l3_proto_t::IPV4,
-                                          VOM::nat_binding::zone_t::INSIDE));
-
+    WAIT_FOR_NOT_PRESENT(nat_static(v_rd,
+                                    address::from_string("10.20.44.2"),
+                                    a5_5_5_5));
 }
 
 BOOST_FIXTURE_TEST_CASE(secGroup, VppManagerFixture) {
