@@ -934,7 +934,7 @@ BOOST_FIXTURE_TEST_CASE(secGroup, VppManagerFixture) {
     WAIT_FOR_DO(lrules.size() == 4, 500, lrules.clear();
                 policyMgr.getSecGroupRules(secGrp1->getURI(), lrules));
 
-    vppManager.secGroupUpdated(secGrp1->getURI());
+    vppManager.endpointUpdated(ep0->getUUID());
 
     route_domain v_rd(100);
     WAIT_FOR1(is_match(v_rd));
@@ -993,7 +993,7 @@ BOOST_FIXTURE_TEST_CASE(secGroup, VppManagerFixture) {
     WAIT_FOR_DO(lrules.size() == 2, 500, lrules.clear();
                 policyMgr.getSecGroupRules(secGrp2->getURI(), lrules));
 
-    vppManager.secGroupUpdated(secGrp2->getURI());
+    vppManager.endpointUpdated(ep0->getUUID());
 
     ACL::ethertype_rule_t e6(ethertype_t::FCOE, direction_t::OUTPUT);
     ACL::ethertype_rule_t e7(ethertype_t::FCOE, direction_t::INPUT);
@@ -1011,7 +1011,6 @@ BOOST_FIXTURE_TEST_CASE(secGroup, VppManagerFixture) {
                              "tenant0/GbpSecGroup/secgrp1/,/PolicyUniverse/"
                              "PolicySpace/tenant0/GbpSecGroup/secgrp2/in",
                               rules2)));
-
     delete v_itf;
 }
 
