@@ -36,6 +36,7 @@
 #include <vom/route.hpp>
 #include <vom/route_domain.hpp>
 #include <vom/sub_interface.hpp>
+#include <vom/sub_interface_cmds.hpp>
 #include <vom/gbp_endpoint.hpp>
 #include <vom/gbp_endpoint_group.hpp>
 #include <vom/gbp_subnet.hpp>
@@ -113,6 +114,11 @@ private:
         if (typeid(*c) == typeid(interface_cmds::af_packet_create_cmd)) {
             interface_cmds::af_packet_create_cmd* ac =
                 dynamic_cast<interface_cmds::af_packet_create_cmd*>(c);
+            HW::item<handle_t> res(++handle, rc_t::OK);
+            ac->item() = res;
+        } else if (typeid(*c) == typeid(sub_interface_cmds::create_cmd)) {
+            sub_interface_cmds::create_cmd* ac =
+                dynamic_cast<sub_interface_cmds::create_cmd*>(c);
             HW::item<handle_t> res(++handle, rc_t::OK);
             ac->item() = res;
         }
@@ -248,7 +254,6 @@ public:
 
         epg2 = space->addGbpEpGroup("epg2");
         epg3 = space->addGbpEpGroup("epg3");
-	epg4 = space->addGbpEpGroup("epg4");
 
         mutator.commit();
 
@@ -742,15 +747,12 @@ BOOST_FIXTURE_TEST_CASE(endpoint_add_del, VppManagerFixture) {
     removeEpg(epg0);
     vppManager.egDomainUpdated(epg0->getURI());
 
-    delete v_itf_ep2;
-
     /*
      * An Another EP in another EPG - trunk port
      */
     vppManager.egDomainUpdated(epg1->getURI());
     vppManager.endpointUpdated(ep4->getUUID());
 
-//    bridge_domain v_bd_epg1(101, bridge_domain::learning_mode_t::OFF);
     WAIT_FOR_MATCH(v_bd_epg1);
 
     interface* v_itf_ep4 =
@@ -761,41 +763,31 @@ BOOST_FIXTURE_TEST_CASE(endpoint_add_del, VppManagerFixture) {
         new sub_interface(*v_itf_ep4, interface::admin_state_t::UP,
                             v_rd, 1000);
     WAIT_FOR_MATCH(*v_trunk_itf_ep4);
-    l2_binding l2(*v_trunk_itf_ep4, v_bd_epg1);
-    l2.set(l2_binding::l2_vtr_op_t::L2_VTR_POP_1, 1000);
-    WAIT_FOR_MATCH(l2);
+    l2_binding *l2 = new l2_binding(*v_trunk_itf_ep4, v_bd_epg1);
+    l2->set(l2_binding::l2_vtr_op_t::L2_VTR_POP_1, 1000);
+    WAIT_FOR_MATCH(*l2);
     WAIT_FOR_MATCH(bridge_domain_entry(v_bd_epg1, v_mac_ep4, *v_trunk_itf_ep4));
-//    interface* v_bvi_epg1 =
-//        new interface("bvi-101", interface::type_t::BVI,
-//                      interface::admin_state_t::UP, v_rd);
-//    v_bvi_epg1->set(vMac);
     WAIT_FOR_MATCH(*v_bvi_epg1);
-//    sub_interface v_upl_epg1(v_phy, interface::admin_state_t::UP, 0xA0B);
     WAIT_FOR_MATCH(v_upl_epg1);
-
-//    gbp_endpoint_group *v_epg1 =
-//        new gbp_endpoint_group(0xA0B, v_upl_epg1, v_rd, v_bd_epg1);
     WAIT_FOR_MATCH(*v_epg1);
 
-    for (auto& ipAddr : getEPIps(ep2)) {
-        WAIT_FOR_MATCH(bridge_domain_arp_entry(v_bd_epg1, ipAddr, v_mac_ep2));
-        WAIT_FOR_MATCH(neighbour(*v_bvi_epg1, ipAddr, v_mac_ep2));
+    for (auto& ipAddr : getEPIps(ep4)) {
+        WAIT_FOR_MATCH(bridge_domain_arp_entry(v_bd_epg1, ipAddr, v_mac_ep4));
+        WAIT_FOR_MATCH(neighbour(*v_bvi_epg1, ipAddr, v_mac_ep4));
         WAIT_FOR_MATCH(route::ip_route(v_rd, {ipAddr}, {ipAddr, *v_bvi_epg1}));
-        WAIT_FOR_MATCH(gbp_endpoint(*v_trunk_itf_ep4, ipAddr, v_mac_ep2, *v_epg1));
+        WAIT_FOR_MATCH(gbp_endpoint(*v_trunk_itf_ep4, ipAddr, v_mac_ep4, *v_epg1));
     }
-    for (auto& ipAddr : getEPIps(ep0)) {
-        WAIT_FOR_MATCH(route::ip_route(v_rd, {ipAddr}, {ipAddr, *v_bvi_epg0}));
-    }
-
-    inspector.handle_input("all", std::cout);
 
     epSrc.removeEndpoint(ep4->getUUID());
     vppManager.endpointUpdated(ep4->getUUID());
-    removeEpg(epg1);
-    vppManager.egDomainUpdated(epg1->getURI());
-//    delete v_itf_ep2;
+
+    delete l2;
+    delete v_itf_ep2;
     delete v_trunk_itf_ep4;
     delete v_itf_ep4;
+
+    removeEpg(epg1);
+    vppManager.egDomainUpdated(epg1->getURI());
 
     /*
      * withdraw the route domain.
